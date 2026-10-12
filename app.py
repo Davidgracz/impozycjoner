@@ -9,7 +9,7 @@ from PIL import ImageTk
 
 from engine import Job, Project, Settings, export_pdf, export_pages, geometry, load_project, preview, save_project, source_summary, PAGE_ROLES, ROLE_AUTO, ROLE_SKIP
 from preflight import inspect_project
-from labels_ui import LabelGeneratorFrame
+from taxi_ui import TaxiGeneratorFrame
 
 BG = '#141923'
 PANEL = '#1d2531'
@@ -45,7 +45,7 @@ PRESETS = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title('Impozycjoner Studio 0.2.5')
+        self.title('Impozycjoner Studio 0.2.6')
         self.geometry('1500x850')
         self.minsize(1000, 700)
         self.configure(background=BG)
@@ -97,15 +97,15 @@ class App(tk.Tk):
         self.tabs = ttk.Notebook(self)
         self.tabs.pack(fill='both', expand=True)
         self.imposition_tab = ttk.Frame(self.tabs)
-        self.label_tab = ttk.Frame(self.tabs)
+        self.taxi_tab = ttk.Frame(self.tabs)
         self.tabs.add(self.imposition_tab, text='  Impozycja PDF  ')
-        self.tabs.add(self.label_tab, text='  Generator etykiet z maili  ')
-        self.labels_ui = LabelGeneratorFrame(self.label_tab)
-        self.labels_ui.pack(fill='both', expand=True)
+        self.tabs.add(self.taxi_tab, text='  Generator naklejek TAXI  ')
+        self.taxi_ui = TaxiGeneratorFrame(self.taxi_tab)
+        self.taxi_ui.pack(fill='both', expand=True)
         top = ttk.Frame(self.imposition_tab, padding=(14, 11))
         top.pack(fill='x')
         ttk.Label(top, text='IMPOZYCJONER', font=('Segoe UI', 19, 'bold'), foreground=ACCENT).pack(side='left', padx=(0, 4))
-        ttk.Label(top, text='STUDIO 0.2.5', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
+        ttk.Label(top, text='STUDIO 0.2.6', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
         self._button(top, 'Otwórz projekt', self.load_project).pack(side='left', padx=3)
         self._button(top, 'Zapisz projekt', self.save_project).pack(side='left', padx=3)
         self._button(top, 'Eksportuj PDF', self.export, True).pack(side='right', padx=5)

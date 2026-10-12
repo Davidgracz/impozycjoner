@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.6 — 2026-10-12
+
+- Replaced the email-label tab with a batch TAXI decal generator.
+- Preserved original left/right Szczecin TIFF artwork; changed only taxi numbers.
+- Added font-to-curves output for rear vector cutting: legacy EPS-based AI, EPS and SVG.
+- Matched the mirrored rear layout from the supplied CorelDRAW X4 template.
+- Added a one-click ZIP batch export, preview images, CLI and production checks.
+- Removed IMAP connection, email parser, saved login and the old label samples.
+- Added tests for vector curves, safe number parsing, source artwork integrity and output dimensions.
+
+
+
 ## 0.2.5 — 2026-10-12
 
 - Added a dedicated email-to-print labels tab with direct IMAP-over-SSL mail listing and read-only fetch.

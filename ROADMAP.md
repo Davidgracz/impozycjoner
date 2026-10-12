@@ -47,4 +47,5 @@ Odniesienie: https://www.impozycjoner.pl/dokumentacja/v4
 
 **Priorytet:** zgodność rzeczywistych wynikowych PDF-ów i bezpieczeństwo druku przed kopiowaniem wyglądu UI piksel w piksel.
 
-- [x] 0.2.5: email-to-print label generator with IMAP SSL, Polish price parser and press-ready PDF.
+- [x] 0.2.6: TAXI side TIFF and rear vector-cut AI/EPS/SVG batch generator (replaces withdrawn email-label module).
+- [ ] Confirm import and cutting fidelity in actual CorelDRAW X4 and the shop plotter.

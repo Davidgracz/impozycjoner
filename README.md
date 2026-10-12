@@ -1,6 +1,6 @@
-# Impozycjoner Studio 0.2.5
+# Impozycjoner Studio 0.2.6
 
-Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wzorowanej funkcjonalnie na procesach znanych z programu Impozycjoner 4. Wersja 0.2.5 **nie jest jeszcze pełnym zamiennikiem Impozycjonera 4**. Nie zawiera jego kodu, plików ani znaków handlowych.
+Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wzorowanej funkcjonalnie na procesach znanych z programu Impozycjoner 4. Wersja 0.2.6 **nie jest jeszcze pełnym zamiennikiem Impozycjonera 4**. Nie zawiera jego kodu, plików ani znaków handlowych.
 
 ## Uruchomienie na Windows 10/11
 
@@ -43,19 +43,35 @@ Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wz
 - Znaczniki przy małych odstępach mogą wchodzić w obszar innych użytków, dlatego przed produkcją wykonaj kontrolę podglądu.
 - Przy dużych nakładach eksport odbywa się w głównym wątku GUI i może chwilowo blokować okno.
 
-## 0.2.5 — Generator etykiet z wiadomości e-mail
+## 0.2.6 — Generator naklejek TAXI (Szczecin)
 
-Nowa zakładka **Generator etykiet z maili**, niezależna od montażu PDF:
+Osobna zakładka zastępująca **Generator etykiet z maili**. Bez logowania IMAP, bez podawania danych klientów.
 
-1. Wejdź w zakładkę. Podaj adres serwera IMAP obsługującego SSL (typowy port **993**), pełny login i hasło lub hasło aplikacji. Kliknij **Pobierz listę maili**; wybierz wiadomość i kliknij **Wczytaj zaznaczony mail**. W prawym panelu pojawią się etykiety. Alternatywnie możesz wklejać treść maila ze schowka albo otwierać plik TXT/EML.
-2. Parser rozpoznaje kategorie i wypunktowania (także w mailach HTML). Cena `12 zł` lub `12,50 PLN` na końcu pozycji jest oddzielana od nazwy. **Nie dopisuje ceny**, jeśli jej nie ma.
-3. Sprawdź tabelę. Każdy wpis możesz poprawić i ustawić liczbę kopii. Wygeneruj gotowy wielostronicowy PDF.
-4. Domyślnie: **Ciastka / wypieki — 110×50 mm z ceną, A4 poziomo 2×4**; **Lody — 90×50 mm bez ceny, A4 pionowo 2×5**. Inne kategorie można przypisać do szablonu. Tekst dopasowywany jest do pola bez rastrowania, fonty z polskimi znakami pobierane są z systemu (preferowana Futura, inaczej Arial/Segoe UI).
-5. PDF grupuje kategorie, może mieć różną orientację A4 na kolejnych stronach. Drukuj **100% / rozmiar rzeczywisty**, bez dopasowania do strony. Przed produkcją sprawdź plik oraz wykonaj wydruk próbny.
+### Generowanie w aplikacji
 
-**Poczta i poufność:** Aplikacja łączy się bezpośrednio z podanym serwerem IMAP przez SSL i tylko wtedy, gdy naciśniesz przycisk. Nie usuwa wiadomości i nie oznacza ich jako przeczytane (`BODY.PEEK`, folder w trybie tylko do odczytu). Opcjonalnie zapamiętuje lokalnie **serwer, port, login i filtr**, ale nigdy hasło ani treść maili. Hasło wpisujesz ponownie po uruchomieniu aplikacji. Jeśli dostawca wymaga OAuth2 zamiast zwykłego logowania IMAP / hasła aplikacji, ta wersja nie obsługuje takiego logowania.
+1. Otwórz **Generator naklejek TAXI**.
+2. Wpisz jeden lub wiele numerów, np. `1740, 1713` (albo po jednym wierszu).
+3. Kliknij **GENERUJ KOMPLET NAKLEJEK TAXI → ZIP** i wybierz miejsce zapisu.
+4. Dla każdego numeru otrzymasz jego osobny folder zawierający:
+   - `<NUMER>_lewy.tif` i `<NUMER>_prawy.tif` — TIFF 2283 × 1102 px, 200 DPI, z zachowanym herbem Szczecina i napisem SZCZECIN; podmieniany jest tylko numer.
+   - `<NUMER>_TYL.ai` — **EPS-based PostScript AI** ze znakami zamienionymi na krzywe; *nie* jest to nowoczesny plik Illustrator CC/PDF.
+   - `<NUMER>_TYL.eps` — taki sam wektorowy projekt jako klasyczny EPS do importu w CorelDRAW X4.
+   - `<NUMER>_TYL.svg` — alternatywne edytowalne krzywe.
+   - `<NUMER>_TYL_PODGLAD.png` — obraz do sprawdzenia wyglądu, **nie** do cięcia.
 
-**Przykład:** `examples/mail_przykladowy_etykiety.txt` zawiera anonimową wiadomość testową (11 wypieków, 7 lodów). `examples/demo_etykiety_z_maila.pdf` zawiera gotowy 3-stronicowy PDF z tego tekstu. Nie używaj przykładowej listy jako zamówienia produkcyjnego.
+Tył na A4 odtwarza układ przesłanego wzorca `TAXI TYL.cdr`: górny numer / SZCZECIN / odwrócone SZCZECIN / odwrócony numer. Wzorzec CDR ma numer **1713**, a dostarczone TIFF-y boczne mają **1740**. Wygenerowane napisy i liczby są obrysami wektorowymi (nie bitmapami, nie aktywnym fontem). Oryginalny CDR nie jest dołączany, nie generujemy natywnego CDR.
+
+**Font:** oryginalny wzór był wykonany w *Impact*. Na typowym Windows program używa systemowego `C:\Windows\Fonts\impact.ttf` i przelicza jego obrysy na ścieżki bez kopiowania fontu. Jeśli Impact nie jest dostępny, można wskazać plik `Impact.ttf` z uprawnionej instalacji Windows. Na Linux/testach używany jest font zastępczy — takie pliki **nie są 1:1 zgodne wizualnie** z oryginałem.
+
+**CorelDRAW X4 / ploter:** `AI` jest wersją opartą na starszym EPS/PS, `EPS` jest plikiem zapasowym. Import wektorów EPS/AI został sprawdzony w LibreOffice Draw jako osobne ścieżki, ale **nie potwierdzono jeszcze otwarcia ani cięcia w rzeczywistym CorelDRAW X4**. Przy pierwszym użyciu zaimportuj `.eps` lub `.ai`, sprawdź wymiar strony A4 210 × 297 mm, rozmiar obrysów, ich kolejność i zrób próbne cięcie. **Nie rozpoczynaj produkcji bez kontroli na swojej maszynie.**
+
+### Generowanie z konsoli
+
+```powershell
+python taxi_generator.py 1740 1713 -o TAXI_zamowienie.zip
+```
+
+Wygenerowany ZIP zawiera wskazane numery i tylko ich dedykowane pliki. Wzory źródłowe boków są w `assets/taxi`.
 
 ## 0.2.4 — przód / tył: dwa pliki i jeden wspólny rewers
 
