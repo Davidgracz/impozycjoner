@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.2 — 2026-10-12
+
+- Added explicit vector-safe PDF resizing: Fit and Fill, with centered placement and controlled clipping.
+- Added A6/A5/A4 target presets and scaling controls in the Windows GUI.
+- Added standalone multipage output at the target trim size; source page order is preserved.
+- Made preflight aware of scaling, crop warnings, output bleed and effective image DPI.
+- Added tests for 22-page A4→A6 workflows, booklet/imposition scaling, cropped fill, shifted MediaBox and rotated pages.
+
 ## 0.2.1 — 2026-10-12
 
 - Fixed false TRIMBOX preflight errors when a PDF has a non-zero MediaBox origin.

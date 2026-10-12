@@ -1,4 +1,4 @@
-"""Impozycjoner Studio 0.2.1 - original PDF imposition engine.
+"""Impozycjoner Studio 0.2.2 - original PDF imposition engine.
 
 Uses PDF form XObjects via PyMuPDF. No source pages are rasterized during export.
 Units exposed to the operator are millimetres; PyMuPDF operates in points.
@@ -65,6 +65,7 @@ class Settings:
     flip: str = "Długa krawędź"
     crop_marks: bool = True
     show_page_labels: bool = False
+    scale_mode: str = "Bez skalowania"  # Bez skalowania | Dopasuj | Wypełnij
 
 
 @dataclass
@@ -128,6 +129,8 @@ def validate(settings: Settings):
         raise ValueError('Nieznany tryb montażu')
     if settings.flip not in ('Długa krawędź', 'Krótka krawędź'):
         raise ValueError('Nieznana metoda odwracania')
+    if settings.scale_mode not in ('Bez skalowania', 'Dopasuj', 'Wypełnij'):
+        raise ValueError('Nieznany sposób skalowania PDF')
 
 
 def geometry(s: Settings) -> Geometry:
@@ -287,6 +290,41 @@ def _rotate_point(x: float, y: float, width: float, height: float,
     raise ValueError('Obrót musi być wielokrotnością 90°')
 
 
+def scaling_layout(source_w: float, source_h: float, target_w: float,
+                   target_h: float, mode: str) -> tuple[float, float, float]:
+    """Return uniform source-to-target scale and centered displacement.
+
+    Arguments must use the same unit, e.g. all mm or all PDF points.
+    The output is (scale, x_offset, y_offset) in those units. Positive
+    offsets indicate letterboxing; negative offsets indicate cropping.
+    """
+    if min(source_w, source_h, target_w, target_h) <= 0:
+        raise ValueError('Nieprawidłowy rozmiar strony do skalowania')
+    if mode == 'Dopasuj':
+        scale = min(target_w/source_w, target_h/source_h)
+    elif mode == 'Wypełnij':
+        scale = max(target_w/source_w, target_h/source_h)
+    elif mode == 'Bez skalowania':
+        scale = 1.0
+    else:
+        raise ValueError('Nieznany sposób skalowania PDF')
+    return scale, (target_w-source_w*scale)/2, (target_h-source_h*scale)/2
+
+
+def _inverse_rotate_point(x: float, y: float, width: float,
+                          height: float, angle: int) -> tuple[float, float]:
+    """Undo _rotate_point, all in unrotated source coordinates."""
+    if angle == 0:
+        return x, y
+    if angle == 90:
+        return y, height-x
+    if angle == 180:
+        return width-x, height-y
+    if angle == 270:
+        return width-y, x
+    raise ValueError('Obrót musi być wielokrotnością 90°')
+
+
 def _place_pdf(target: fitz.Page, p: SourcePage, slot: Slot, s: Settings,
                sources: dict[str, fitz.Document]):
     original = sources[p.path][p.index]
@@ -296,42 +334,66 @@ def _place_pdf(target: fitz.Page, p: SourcePage, slot: Slot, s: Settings,
     apparent_w, apparent_h = ((mm(trim.height), mm(trim.width))
                               if original_angle in (90, 270)
                               else (mm(trim.width), mm(trim.height)))
-    if abs(apparent_w-s.trim_w) > 0.5 or abs(apparent_h-s.trim_h) > 0.5:
+    if s.scale_mode == 'Bez skalowania' and (
+        abs(apparent_w-s.trim_w) > 0.5 or abs(apparent_h-s.trim_h) > 0.5
+    ):
         raise ValueError(
             f'{Path(p.path).name}, strona {p.index+1}: TrimBox {apparent_w:.2f} × '
             f'{apparent_h:.2f} mm nie odpowiada {s.trim_w:g} × {s.trim_h:g} mm. '
-            'Popraw format lub przygotuj PDF w prawidłowym rozmiarze.')
+            'Wybierz skalowanie PDF (Dopasuj / Wypełnij) albo ustaw poprawny format.')
     if trim.is_empty or any(abs(a-b) > .05 for a,b in zip(trim, trim & media)):
         raise ValueError(f'{Path(p.path).name}: TrimBox poza MediaBox')
 
-    # Respect explicitly larger BleedBox while handling PDFs without one.
     bleedbox = fitz.Rect(original.bleedbox)
     limit = media
     if bleedbox.contains(trim) and bleedbox != trim and bleedbox != original.cropbox:
         limit = bleedbox & media
-    desired = fitz.Rect(trim.x0-pt(s.bleed), trim.y0-pt(s.bleed),
-                        trim.x1+pt(s.bleed), trim.y1+pt(s.bleed))
-    visible = desired & limit
-    if visible.is_empty or visible.width <= 0 or visible.height <= 0:
-        raise ValueError(f'{Path(p.path).name}: nieprawidłowy obszar spadów')
-
     angle = (original_angle + slot.rotation) % 360
-    # The target destination encloses exactly the surviving part of the bleed
-    # rectangle. Transform all corners so asymmetric/missing bleed and rotation
-    # are represented correctly; no stretching into the missing bleed area.
+    final_width = trim.width if angle in (0, 180) else trim.height
+    final_height = trim.height if angle in (0, 180) else trim.width
+    dest_w, dest_h = pt(slot.w), pt(slot.h)
+    factor, dx, dy = scaling_layout(final_width, final_height, dest_w, dest_h,
+                                    s.scale_mode)
+    # For exact-size source PDFs tolerate printer/export rounding <=0.5mm
+    # without stretching artwork in opposite dimensions.
+    base_x = pt(slot.x) + dx
+    base_y = pt(slot.y) + dy
+
+    # Required source bleed becomes larger when shrinking a source (e.g. A4
+    # -> A6 needs 4mm source bleed to supply 2mm at output). Missing areas
+    # stay white: the engine never invents an extended image.
+    needed = pt(s.bleed)/factor
+    desired = fitz.Rect(trim.x0-needed, trim.y0-needed,
+                        trim.x1+needed, trim.y1+needed)
+
+    # The 'Wypełnij' mode enlarges and crops to the target cell. Transform
+    # target cell limits backwards, then clip the source to that range, so
+    # content never bleeds into neighboring imposition cells.
+    allowed_x0 = (pt(slot.x-s.bleed)-base_x)/factor
+    allowed_y0 = (pt(slot.y-s.bleed)-base_y)/factor
+    allowed_x1 = (pt(slot.x+slot.w+s.bleed)-base_x)/factor
+    allowed_y1 = (pt(slot.y+slot.h+s.bleed)-base_y)/factor
+    orig_corners = [_inverse_rotate_point(x, y, trim.width, trim.height, angle)
+                    for x, y in ((allowed_x0, allowed_y0),
+                                 (allowed_x0, allowed_y1),
+                                 (allowed_x1, allowed_y0),
+                                 (allowed_x1, allowed_y1))]
+    bounds = fitz.Rect(trim.x0 + min(x for x, _ in orig_corners),
+                       trim.y0 + min(y for _, y in orig_corners),
+                       trim.x0 + max(x for x, _ in orig_corners),
+                       trim.y0 + max(y for _, y in orig_corners))
+    visible = desired & limit & bounds
+    if visible.is_empty or visible.width <= 0 or visible.height <= 0:
+        raise ValueError(f'{Path(p.path).name}: nieprawidłowy obszar po skalowaniu i kadrowaniu')
+
     corners = [(visible.x0, visible.y0), (visible.x1, visible.y0),
                (visible.x0, visible.y1), (visible.x1, visible.y1)]
     rotated = [_rotate_point(x-trim.x0, y-trim.y0, trim.width, trim.height, angle)
-               for x,y in corners]
-    final_width = trim.width if angle in (0, 180) else trim.height
-    final_height = trim.height if angle in (0, 180) else trim.width
-    sx, sy = pt(slot.w)/final_width, pt(slot.h)/final_height
-    box = fitz.Rect(pt(slot.x) + min(x for x,_ in rotated)*sx,
-                    pt(slot.y) + min(y for _,y in rotated)*sy,
-                    pt(slot.x) + max(x for x,_ in rotated)*sx,
-                    pt(slot.y) + max(y for _,y in rotated)*sy)
-    # PyMuPDF's clip coordinates refer to the displayed CropBox. Temporarily
-    # expose the full MediaBox, otherwise a valid bleed outside CropBox is lost.
+               for x, y in corners]
+    box = fitz.Rect(base_x + min(x for x, _ in rotated)*factor,
+                    base_y + min(y for _, y in rotated)*factor,
+                    base_x + max(x for x, _ in rotated)*factor,
+                    base_y + max(y for _, y in rotated)*factor)
     old_crop = fitz.Rect(original.cropbox)
     try:
         original.set_rotation(0)
@@ -392,10 +454,46 @@ def export_pdf(project: Project, output: str):
         if count == 0:
             raise ValueError('Brak stron do montażu')
         out.set_metadata({'title':'Impozycjoner Studio - montaż PDF',
-                          'creator':'Impozycjoner Studio 0.2.1'})
+                          'creator':'Impozycjoner Studio 0.2.2'})
         Path(output).parent.mkdir(parents=True, exist_ok=True)
         out.save(output, garbage=3, deflate=True)
         return count
+    finally:
+        out.close()
+        for doc in sources.values():
+            doc.close()
+
+
+def export_pages(project: Project, output: str) -> int:
+    """Produce one original logical page per output page at target net size.
+
+    When bleed > 0, the physical MediaBox includes bleed and TrimBox is
+    precisely the requested net format. No crop marks are added.
+    """
+    validate(project.settings)
+    if not project.jobs:
+        raise ValueError('Dodaj co najmniej jeden plik PDF')
+    s = project.settings
+    sources = open_sources(project.jobs)
+    out = fitz.open()
+    try:
+        for source in _page_refs(project.jobs, sources):
+            w = s.trim_w + 2*s.bleed
+            h = s.trim_h + 2*s.bleed
+            page = out.new_page(width=pt(w), height=pt(h))
+            slot = Slot(s.bleed, s.bleed, s.trim_w, s.trim_h, 0, 0, 0)
+            _place_pdf(page, source, slot, s, sources)
+            if s.bleed:
+                page.set_trimbox(fitz.Rect(pt(s.bleed), pt(s.bleed),
+                                           pt(s.bleed+s.trim_w), pt(s.bleed+s.trim_h)))
+                page.set_bleedbox(page.rect)
+        if len(out) == 0:
+            raise ValueError('Brak stron do eksportu')
+        out.set_metadata({'title':'Impozycjoner Studio - strony w formacie docelowym',
+                          'creator':'Impozycjoner Studio 0.2.2'})
+        Path(output).parent.mkdir(parents=True, exist_ok=True)
+        out.save(output, garbage=3, deflate=True)
+        return len(out)
     finally:
         out.close()
         for doc in sources.values():

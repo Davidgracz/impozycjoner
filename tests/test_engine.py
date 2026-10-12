@@ -254,3 +254,105 @@ def test_truly_invalid_trimbox_outside_media_is_rejected(tmp_path):
         doc.saveIncr()
     report = inspect_project(Project(Settings(bleed=0),[Job(src)]))
     assert any(f.code == 'TRIMBOX' for f in report.findings)
+
+
+def test_a4_to_a6_22_pages_fit_preserves_page_order_and_vectors(tmp_path):
+    from engine import export_pages
+    from preflight import inspect_project
+    source=make_source(tmp_path, 'a4-22.pdf', 22, w=210, h=297)
+    s=Settings(trim_w=105, trim_h=148, bleed=0, scale_mode='Dopasuj',
+               crop_marks=False)
+    project=Project(s,[Job(source)])
+    report=inspect_project(project)
+    assert report.checked_pages == 22
+    assert report.errors == 0, report.to_text()
+    target=tmp_path/'a6-22.pdf'
+    assert export_pages(project,str(target)) == 22
+    with fitz.open(target) as document:
+        assert len(document) == 22
+        for i,p in enumerate(document):
+            assert abs(p.rect.width - 105*72/25.4)<.05
+            assert abs(p.rect.height - 148*72/25.4)<.05
+            assert f'page-{i+1}' in p.get_text()
+            assert not p.get_images(full=True)
+
+
+def test_scaling_explicitly_opt_in_and_project_roundtrip(tmp_path):
+    from preflight import inspect_project
+    source=make_source(tmp_path,'large.pdf',1,w=210,h=297)
+    s=Settings(trim_w=105,trim_h=148,bleed=0)
+    project=Project(s,[Job(source)])
+    report=inspect_project(project)
+    assert report.errors==1
+    assert any(f.code=='FORMAT' for f in report.findings)
+    s.scale_mode='Dopasuj'
+    file=tmp_path/'project.psimp'
+    save_project(project,str(file))
+    assert load_project(str(file)).settings.scale_mode=='Dopasuj'
+    assert inspect_project(project).errors==0
+
+
+def test_a4_to_a6_as_imposition_not_only_standalone(tmp_path):
+    src=make_source(tmp_path,'book.pdf',4,w=210,h=297)
+    s=Settings(sheet_w=320,sheet_h=225,trim_w=105,trim_h=148,bleed=0,
+               margin_x=5,margin_y=5,gap_x=4,gap_y=4,scale_mode='Dopasuj',
+               crop_marks=False)
+    out=tmp_path/'imposition.pdf'
+    assert export_pdf(Project(s,[Job(src)]),str(out))==1
+    with fitz.open(out) as doc:
+        page=doc[0]
+        for i in range(1,5):
+            assert f'page-{i}' in page.get_text()
+
+
+def test_fill_mode_crops_to_target_without_stretch_or_spill(tmp_path):
+    from engine import pt, export_pages
+    from preflight import inspect_project
+    # Square source deliberately fills an oblong target by cropping top/bottom.
+    src=make_source(tmp_path,'square.pdf',1,w=100,h=100)
+    settings=Settings(trim_w=100,trim_h=50,bleed=0,
+                      scale_mode='Wypełnij',crop_marks=False)
+    report=inspect_project(Project(settings,[Job(src)]))
+    assert report.errors==0
+    assert any(f.code=='SKALA' and f.level=='UWAGA' for f in report.findings)
+    dest=tmp_path/'filled.pdf'
+    assert export_pages(Project(settings,[Job(src)]),str(dest))==1
+    with fitz.open(dest) as doc:
+        assert abs(doc[0].rect.width-pt(100))<.05
+        assert abs(doc[0].rect.height-pt(50))<.05
+        # Red block at y=5 should be cropped, not displaced into output page.
+        px=doc[0].get_pixmap(matrix=fitz.Matrix(2,2))
+        at=lambda x,y: px.pixel(int(pt(x)*2),int(pt(y)*2))[:3]
+        assert all(v>245 for v in at(10,10))
+        assert 'page-1' not in doc[0].get_text()  # text y=30 also outside crop
+
+
+def test_scaled_bleed_uses_output_mm_not_source_mm(tmp_path):
+    from preflight import inspect_project
+    src=make_bleeded_source(tmp_path)
+    # Source has 2mm bleed. Shrinking 90x50 -> 45x25 yields only 1mm
+    # of physical bleed in output, insufficient for required 2mm.
+    s=Settings(trim_w=45,trim_h=25,bleed=2,scale_mode='Dopasuj')
+    report=inspect_project(Project(s,[Job(src)]))
+    assert report.errors==0
+    assert any(f.code=='SPAD' for f in report.findings)
+
+
+def test_scaling_rotated_source_and_shifted_mediabox(tmp_path):
+    from engine import export_pages
+    from preflight import inspect_project
+    src=make_offset_mediabox_source(tmp_path,'shifted-scaled.pdf',count=3,
+                                     offset_x=-22,offset_y=-67)
+    s=Settings(trim_w=45,trim_h=25,bleed=0,scale_mode='Dopasuj')
+    project=Project(s,[Job(src)])
+    assert inspect_project(project).errors==0
+    output=tmp_path/'shifted-output.pdf'
+    assert export_pages(project,str(output))==3
+    with fitz.open(output) as doc:
+        assert all(f'OFFSET-{i+1}' in doc[i].get_text() for i in range(3))
+    rotated=make_bleeded_source(tmp_path,angle=90)
+    s=Settings(trim_w=25,trim_h=45,bleed=0,scale_mode='Dopasuj')
+    pr=Project(s,[Job(rotated)])
+    assert inspect_project(pr).errors==0
+    output=tmp_path/'rotated-small.pdf'
+    assert export_pages(pr,str(output))==1

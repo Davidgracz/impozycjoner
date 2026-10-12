@@ -7,7 +7,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from PIL import ImageTk
 
-from engine import Job, Project, Settings, export_pdf, geometry, load_project, preview, save_project, source_summary
+from engine import Job, Project, Settings, export_pdf, export_pages, geometry, load_project, preview, save_project, source_summary
 from preflight import inspect_project
 
 BG = '#141923'
@@ -17,6 +17,17 @@ BORDER = '#3c4859'
 TEXT = '#edf2f7'
 MUTED = '#a7b4c8'
 ACCENT = '#3ed6d0'
+
+TRIM_PRESETS = {
+    'Z PDF (oryginał)': None,
+    'A6 105 × 148 mm': (105, 148),
+    'A6 poziomo 148 × 105 mm': (148, 105),
+    'A5 148 × 210 mm': (148, 210),
+    'A5 poziomo 210 × 148 mm': (210, 148),
+    'A4 210 × 297 mm': (210, 297),
+    'A4 poziomo 297 × 210 mm': (297, 210),
+    'Niestandardowy': None,
+}
 
 PRESETS = {
     'SRA3 450 × 320 mm': (450, 320),
@@ -33,7 +44,7 @@ PRESETS = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title('Impozycjoner Studio 0.2.1')
+        self.title('Impozycjoner Studio 0.2.2')
         self.geometry('1500x850')
         self.minsize(1000, 700)
         self.configure(background=BG)
@@ -85,10 +96,11 @@ class App(tk.Tk):
         top = ttk.Frame(self, padding=(14, 11))
         top.pack(fill='x')
         ttk.Label(top, text='IMPOZYCJONER', font=('Segoe UI', 19, 'bold'), foreground=ACCENT).pack(side='left', padx=(0, 4))
-        ttk.Label(top, text='STUDIO 0.2.1', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
+        ttk.Label(top, text='STUDIO 0.2.2', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
         self._button(top, 'Otwórz projekt', self.load_project).pack(side='left', padx=3)
         self._button(top, 'Zapisz projekt', self.save_project).pack(side='left', padx=3)
         self._button(top, 'Eksportuj PDF', self.export, True).pack(side='right', padx=5)
+        self._button(top, 'Eksportuj pojedyncze strony', self.export_single_pages).pack(side='right', padx=5)
         self._button(top, 'Preflight PDF', self.show_preflight).pack(side='right', padx=5)
         self._button(top, 'Odśwież podgląd', self.refresh).pack(side='right', padx=5)
 
@@ -182,7 +194,18 @@ class App(tk.Tk):
         self._paired(form,'Szer. arkusza (mm)','sheet_w','Wys. arkusza (mm)','sheet_h')
         self._separator(form)
         ttk.Label(form,text='UŻYTEK / STRONA',style='Header.TLabel').pack(anchor='w',pady=(8,6))
+        self.trim_preset_var=tk.StringVar(value='Z PDF (oryginał)')
+        ttk.Label(form, text='Docelowy format strony',style='Panel.TLabel').pack(anchor='w',pady=(3,2))
+        ttk.Combobox(form,textvariable=self.trim_preset_var,
+                     values=list(TRIM_PRESETS),state='readonly').pack(fill='x',pady=(0,5))
+        self.trim_preset_var.trace_add('write',lambda *_:self.apply_trim_preset())
         self._paired(form,'Szer. netto (mm)','trim_w','Wys. netto (mm)','trim_h')
+        self.scale_var=tk.StringVar(value='Bez skalowania')
+        self._row(form,'Skalowanie PDF',self.scale_var,'combo',
+                  ('Bez skalowania','Dopasuj','Wypełnij'))
+        self.scale_var.trace_add('write',lambda *_:self.schedule_refresh())
+        ttk.Label(form,text='Dopasuj = cała strona, możliwe marginesy.\nWypełnij = bez marginesów, przycina brzegi.',
+                  style='Muted.TLabel',wraplength=255,justify='left').pack(anchor='w',pady=(3,6))
         self._paired(form,'Spad (mm)','bleed','Odstęp X (mm)','gap_x')
         self._paired(form,'Odstęp Y (mm)','gap_y','Margines X (mm)','margin_x')
         self.variables['margin_y']=tk.StringVar()
@@ -252,6 +275,11 @@ class App(tk.Tk):
                 self.variables[field]=tk.StringVar()
             self.variables[field].set(str(getattr(s,field)))
         self.mode_var.set(s.mode)
+        self.scale_var.set(s.scale_mode)
+        preset=next((name for name, size in TRIM_PRESETS.items()
+                     if size and abs(size[0]-s.trim_w)<.05 and abs(size[1]-s.trim_h)<.05),
+                    'Niestandardowy')
+        self.trim_preset_var.set(preset)
         self.rot_var.set(s.rotation)
         self.flip_var.set(s.flip)
         self.marks_var.set(s.crop_marks)
@@ -264,6 +292,7 @@ class App(tk.Tk):
         for key,var in self.variables.items():
             data[key]=int(var.get()) if key in ('columns','rows') else float(var.get().replace(',','.'))
         return Settings(**data,mode=self.mode_var.get(), rotation=self.rot_var.get(),
+                        scale_mode=self.scale_var.get(),
                         flip=self.flip_var.get(),crop_marks=self.marks_var.get(),
                         show_page_labels=self.labels_var.get())
 
@@ -275,13 +304,28 @@ class App(tk.Tk):
             self.variables['sheet_h'].set(str(size[1]))
             self.schedule_refresh()
 
+    def apply_trim_preset(self):
+        if self._suspend_events:
+            return
+        item=self.trim_preset_var.get()
+        dims=TRIM_PRESETS.get(item)
+        if item == 'Z PDF (oryginał)' and self.project.jobs:
+            try:
+                _,w,h=source_summary(self.project.jobs[0].path)
+                dims=(w,h)
+            except Exception:
+                return
+        if dims:
+            self.variables['trim_w'].set(str(dims[0]))
+            self.variables['trim_h'].set(str(dims[1]))
+            self.schedule_refresh()
+
     def add_files(self):
         paths=filedialog.askopenfilenames(title='Dodaj pliki PDF',filetypes=[('Pliki PDF','*.pdf')])
         for path in paths:
             try:
                 count,w,h=source_summary(path)
-                if not self.project.jobs:
-                    # Set format to first source's TrimBox.
+                if not self.project.jobs and self.trim_preset_var.get() == 'Z PDF (oryginał)':
                     self.variables['trim_w'].set(str(w))
                     self.variables['trim_h'].set(str(h))
                 self.project.jobs.append(Job(path,1))
@@ -480,10 +524,18 @@ class App(tk.Tk):
         self._button(actions,'Zamknij',window.destroy).pack(side='right')
 
     def export(self):
+        self._export(standalone=False)
+
+    def export_single_pages(self):
+        self._export(standalone=True)
+
+    def _export(self, standalone=False):
         if not self.project.jobs:
             messagebox.showwarning('Brak plików','Najpierw dodaj PDF.')
             return
-        path=filedialog.asksaveasfilename(defaultextension='.pdf',filetypes=[('PDF do druku','*.pdf')])
+        path=filedialog.asksaveasfilename(defaultextension='.pdf',
+              initialfile='strony_docelowe.pdf' if standalone else 'montaz.pdf',
+              filetypes=[('PDF do druku','*.pdf')])
         if not path:return
         try:
             self.project.settings=self._read_fields()
@@ -501,9 +553,10 @@ class App(tk.Tk):
                 return
             self.update_idletasks()
             self.stats_text.set('Eksport w toku…')
-            count=export_pdf(self.project,path)
+            count=(export_pages(self.project,path) if standalone
+                   else export_pdf(self.project,path))
             self.stats_text.set(f'Wyeksportowano {count} stron PDF: {path}')
-            messagebox.showinfo('Eksport zakończony',f'Zapisano {count} stron PDF.\n{path}\n\nSprawdź ustawienie dwustronności przed nakładem.')
+            messagebox.showinfo('Eksport zakończony',f'Zapisano {count} stron PDF.\n{path}\n\nSprawdź podgląd i wydruk próbny przed nakładem.')
         except Exception as e:
             messagebox.showerror('Błąd eksportu',str(e))
             self.refresh()

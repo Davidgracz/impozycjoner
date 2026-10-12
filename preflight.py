@@ -11,7 +11,7 @@ import json
 
 import pymupdf as fitz
 
-from engine import Job, Project, Settings, mm, media_rect, open_sources, validate
+from engine import Job, Project, Settings, mm, media_rect, open_sources, scaling_layout, validate
 
 
 @dataclass(frozen=True)
@@ -108,21 +108,31 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
                     label('BŁĄD', 'TRIMBOX', 'TrimBox jest poza MediaBox albo jest pusty.')
                     continue
                 width, height = _size(page)
-                if abs(width - s.trim_w) > .5 or abs(height - s.trim_h) > .5:
+                if s.scale_mode == 'Bez skalowania' and (abs(width-s.trim_w) > .5 or abs(height-s.trim_h) > .5):
                     label('BŁĄD', 'FORMAT',
-                          f'TrimBox: {width:.2f} × {height:.2f} mm; montaż: {s.trim_w:g} × {s.trim_h:g} mm. '
-                          'Nie skalujemy strony niejawnie.')
+                          f'TrimBox: {width:.2f} × {height:.2f} mm; docelowo: {s.trim_w:g} × {s.trim_h:g} mm. '
+                          'Wybierz tryb skalowania lub dopasuj rozmiar.')
+                factor, dx, dy = scaling_layout(width, height, s.trim_w, s.trim_h,
+                                                s.scale_mode)
+                if s.scale_mode != 'Bez skalowania':
+                    # Positive offsets = white border; negative = trimmed content.
+                    extra = (f'białe marginesy do {max(dx,dy):.2f} mm' if dx > .2 or dy > .2
+                             else f'przycięcie do {-min(dx,dy):.2f} mm' if dx < -.2 or dy < -.2
+                             else 'brak istotnego przycięcia')
+                    label('UWAGA' if min(dx,dy) < -.2 else 'INFO', 'SKALA',
+                          f'{width:.2f} × {height:.2f} mm → {s.trim_w:g} × {s.trim_h:g} mm; '
+                          f'{factor*100:.2f}%, {s.scale_mode.lower()}; {extra}.')
                 # BleedBox may legitimately equal TrimBox: check actual media
                 # envelope as well, but never assert that ink really fills it.
                 avail = media
                 if bleed.contains(trim) and bleed != trim and bleed != page.cropbox:
                     avail = bleed & media
                 distances = _distance_box(avail, trim)
-                if s.bleed > 0 and min(distances) < s.bleed - .15:
+                if s.bleed > 0 and min(distances)*factor < s.bleed - .15:
                     label('UWAGA', 'SPAD',
                           'Dostępny obszar poza TrimBox (lewo/góra/prawo/dół): '
-                          + '/'.join(f'{max(0,v):.2f}' for v in distances) +
-                          f' mm; wymagany spad: {s.bleed:g} mm. Brakujący obszar pozostanie biały.')
+                          + '/'.join(f'{max(0,v*factor):.2f}' for v in distances) +
+                          f' mm po skalowaniu; wymagany spad: {s.bleed:g} mm. Brakujący obszar pozostanie biały.')
                 if page.rotation:
                     label('INFO', 'ROTACJA', f'Źródłowe /Rotate = {page.rotation}°.')
                 try:
@@ -132,7 +142,7 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
                             continue
                         dpi_x = image['width'] * 72 / box.width
                         dpi_y = image['height'] * 72 / box.height
-                        dpi = min(dpi_x, dpi_y)
+                        dpi = min(dpi_x, dpi_y) / factor
                         if dpi < min_dpi:
                             label('UWAGA', 'DPI', f'Obraz ~{dpi:.0f} DPI (minimalnie {min_dpi} DPI).')
                 except (ValueError, RuntimeError, KeyError) as exc:

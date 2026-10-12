@@ -13,6 +13,7 @@ Odniesienie: https://www.impozycjoner.pl/dokumentacja/v4
 ## 0.2 — Produkcyjna kontrola PDF (w toku — część ukończona)
 - [x] Wektorowe osadzanie ze spadami, MediaBox/CropBox/TrimBox oraz obroty 0/90/180/270 (dla regularnych stron PDF)
 - [x] Walidacja TrimBox każdej strony, detekcja brakujących spadów i blokowanie niejawnego skalowania
+- [x] Jawne skalowanie źródłowego PDF do netto: Dopasuj/Wypełnij, eksport pojedynczych stron A6/A5/A4
 - [ ] Podgląd Recto/Verso oraz nadrukowalnych pól i obszaru chwytu
 - [x] Podstawowy raport preflight: format, fizyczny spad, progi DPI obrazów, próba weryfikacji fontów
 - [ ] Pełny preflight: RGB/CMYK/spot, ICC, transparencje, PDF/X; znaczniki netto/brutto, pasery, paski kontrolne i opisy
