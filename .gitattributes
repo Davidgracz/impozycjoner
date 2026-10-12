@@ -1,0 +1,10 @@
+# Keep Windows launchers compatible with CMD
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.py text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.pdf binary
+*.png binary
+*.psimp binary
