@@ -1,6 +1,6 @@
-# Impozycjoner Studio 0.2.2
+# Impozycjoner Studio 0.2.3
 
-Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wzorowanej funkcjonalnie na procesach znanych z programu Impozycjoner 4. Wersja 0.2.2 **nie jest jeszcze pełnym zamiennikiem Impozycjonera 4**. Nie zawiera jego kodu, plików ani znaków handlowych.
+Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wzorowanej funkcjonalnie na procesach znanych z programu Impozycjoner 4. Wersja 0.2.3 **nie jest jeszcze pełnym zamiennikiem Impozycjonera 4**. Nie zawiera jego kodu, plików ani znaków handlowych.
 
 ## Uruchomienie na Windows 10/11
 
@@ -25,6 +25,7 @@ Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wz
 - **Eksportuj pojedyncze strony**: tworzy nowy wielostronicowy PDF, w którym każda strona ma docelowy format netto (albo format netto + skonfigurowany spad). Alternatywnie można skalować bezpośrednio podczas montażu na arkuszu.
 - Poprawna interpretacja MediaBox z przesuniętym początkiem (również przy CropBox/TrimBox/BleedBox) — bez fałszywego błędu TRIMBOX; ten sam układ jest stosowany przy eksporcie.
 - **Preflight PDF**: kontrola wymiarów TrimBox każdej strony, dostępnego fizycznego spadu, uproszczone DPI obrazów i fontów, TXT/JSON; błędy geometrii blokują eksport, a ostrzeżenia wymagają potwierdzenia.
+- **Preflight 0.2.3**: raport ostrzega, gdy jeden PDF zawiera różne rozmiary stron (np. strony 1–12 A4 i 13–22 A6). Ostrzeżenia DPI są zgrupowane na stronę, a kompletne dane każdego problematycznego obrazu (w tym efektywne DPI po skalowaniu, położenie w pt i wymiary pikselowe) pozostają w eksporcie JSON.
 - Poprawione umieszczanie spadów przy obrocie użytków 90/180/270° i źródłowych stron PDF z /Rotate; źródłowego PDF nie rozciągamy automatycznie, jeśli format nie pasuje.
 - Zapis/odczyt projektu `.psimp` (archiwum ZIP + JSON, względne ścieżki PDF, oryginalne pliki nie są kopiowane do projektu).
 
@@ -90,3 +91,9 @@ Po pierwszej publikacji zwykły workflow to `git add .`, `git commit -m "Short E
 **Prywatność:** w repozytorium nie ma lokalnego `.venv`, danych logowania ani cudzych plików klientów. Przykładowe PDF-y są sztuczne. Prawa/licencję otwartoźródłową ustalimy przed ewentualnym udostępnieniem repo publicznie.
 
 ![Podgląd interfejsu v0.1.0](docs/interface-v0.1.0.png)
+
+## Przykład: strony A4 i A6 wymieszane w jednym PDF
+
+Jeśli preflight pokazuje strony 1–12 A4 i 13–22 A6, wybór docelowego **A4** sprawi, że strony 13–22 zostaną **powiększone do około 200%**, co może silnie obniżyć efektywne DPI fotografii. Jeśli produkt ma być A6, wybierz docelowy **A6 105 × 148 mm** i skalowanie **Dopasuj**: pierwsze strony zostaną pomniejszone, a kolejne pozostaną zbliżone do 100%.
+
+Raport TXT ma **jedną uwagę DPI na stronę**, zawierającą liczbę problematycznych obrazów i ich minimalną efektywną rozdzielczość. To porządkowanie komunikatów, a nie poprawa jakości pliku. Szczegółowe informacje o każdym obrazie można zapisać w pliku JSON (`image_issues`). Obrazy i logotypy o niskiej rozdzielczości nadal wymagają ręcznej kontroli.

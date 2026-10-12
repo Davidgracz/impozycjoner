@@ -356,3 +356,81 @@ def test_scaling_rotated_source_and_shifted_mediabox(tmp_path):
     assert inspect_project(pr).errors==0
     output=tmp_path/'rotated-small.pdf'
     assert export_pages(pr,str(output))==1
+
+
+def test_mixed_a4_a6_pages_are_reported_as_distinct_ranges(tmp_path):
+    """Regression: a client PDF with 12 A4 pages and 10 A6 pages."""
+    from preflight import inspect_project
+    from engine import pt
+    src = tmp_path / 'mixed.pdf'
+    d = fitz.open()
+    for number in range(22):
+        w, h = (210.08, 297.13) if number < 12 else (105.04, 147.90)
+        p = d.new_page(width=pt(w), height=pt(h))
+        p.insert_text((20, 30), f'card-{number+1}')
+    d.save(src)
+    d.close()
+    report = inspect_project(Project(Settings(trim_w=210, trim_h=297,
+                                               scale_mode='Dopasuj', bleed=0), [Job(str(src))]))
+    assert report.errors == 0, report.to_text()
+    warnings = [f for f in report.findings if f.code == 'MIESZANE_FORMATY']
+    assert len(warnings) == 1
+    assert '1–12' in warnings[0].message
+    assert '13–22' in warnings[0].message
+    assert 'A4' in warnings[0].message and 'A6' in warnings[0].message
+    assert len(report.format_ranges) == 2
+    assert report.warnings == 1
+
+
+def test_dpi_grouped_per_page_and_preserved_individually_in_json(tmp_path):
+    import io
+    import json
+    from PIL import Image
+    from engine import pt
+    from preflight import inspect_project
+    src = tmp_path / 'two-images.pdf'
+    image = Image.new('RGB', (80, 80), (255, 0, 0))
+    output = io.BytesIO()
+    image.save(output, 'PNG')
+    d = fitz.open()
+    page = d.new_page(width=pt(105), height=pt(148))
+    page.insert_image(fitz.Rect(10, 10, 150, 150), stream=output.getvalue())
+    page.insert_image(fitz.Rect(155, 10, 295, 150), stream=output.getvalue())
+    d.save(src)
+    d.close()
+    result = inspect_project(Project(Settings(trim_w=210, trim_h=297,
+                                              scale_mode='Dopasuj', bleed=0), [Job(str(src))]))
+    dpi_findings = [f for f in result.findings if f.code == 'DPI']
+    assert len(dpi_findings) == 1, result.to_text()
+    assert '2 obrazy' in dpi_findings[0].message
+    assert len(result.image_issues) == 2
+    assert result.image_issues[0].dpi < result.image_issues[0].native_dpi
+    assert result.image_issues[0].scale_percent > 190
+    data = json.loads(result.to_json())
+    assert len(data['image_issues']) == 2
+    assert data['image_issues'][0]['image_width_px'] == 80
+    assert data['warnings'] == 1
+
+
+def test_dpi_calculated_after_downscaling(tmp_path):
+    """Downsizing improves effective DPI without changing the source pixels."""
+    import io
+    from PIL import Image
+    from engine import pt
+    from preflight import inspect_project
+    src = tmp_path / 'hi_after_scale.pdf'
+    img = Image.new('RGB', (160, 160), (0, 255, 0))
+    output = io.BytesIO()
+    img.save(output, 'PNG')
+    d = fitz.open()
+    page = d.new_page(width=pt(210), height=pt(297))
+    page.insert_image(fitz.Rect(10, 10, 120, 120), stream=output.getvalue())
+    d.save(src)
+    d.close()
+    src_report = inspect_project(Project(Settings(trim_w=210, trim_h=297,
+                                                   scale_mode='Bez skalowania', bleed=0), [Job(str(src))]))
+    down_report = inspect_project(Project(Settings(trim_w=105, trim_h=148,
+                                                    scale_mode='Dopasuj', bleed=0), [Job(str(src))]))
+    assert any(f.code == 'DPI' for f in src_report.findings)
+    assert all(f.code != 'DPI' for f in down_report.findings)
+    assert down_report.errors == 0

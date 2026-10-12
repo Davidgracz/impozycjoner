@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.3 — 2026-10-12
+
+- Detected mixed source page sizes in one PDF and warned about implicit enlargement or reduction to the selected target trim size.
+- Consolidated low-resolution image findings by page to avoid repeating dozens of similar warnings.
+- Reported effective DPI after scaling, retaining exact image instances, coordinates, pixel dimensions, and native DPI in the JSON report.
+- Added regression tests for a 22-page document mixing A4/A6, grouped DPI warnings, and improved effective DPI after downscaling.
+
 ## 0.2.2 — 2026-10-12
 
 - Added explicit vector-safe PDF resizing: Fit and Fill, with centered placement and controlled clipping.

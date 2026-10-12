@@ -5,7 +5,7 @@ advisory, while source-size verification in the imposition engine is mandatory.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 import json
 
@@ -23,11 +23,37 @@ class Finding:
     message: str
 
 
+@dataclass(frozen=True)
+class ImageIssue:
+    """One physical image occurrence. Exposed in JSON even when UI is grouped."""
+    path: str
+    page: int
+    dpi: float
+    native_dpi: float
+    image_width_px: int
+    image_height_px: int
+    bbox_pt: tuple[float, float, float, float]
+    scale_percent: float
+
+
+@dataclass(frozen=True)
+class FormatRange:
+    path: str
+    first_page: int
+    last_page: int
+    width_mm: float
+    height_mm: float
+    format_name: str
+
+
 @dataclass
 class PreflightReport:
     checked_pages: int
     total_pages: int
     findings: list[Finding]
+    image_issues: list[ImageIssue] = field(default_factory=list)
+    format_ranges: list[FormatRange] = field(default_factory=list)
+    min_dpi: int = 200
 
     @property
     def errors(self) -> int:
@@ -42,6 +68,8 @@ class PreflightReport:
             'IMPOZYCJONER STUDIO — RAPORT PREFLIGHT',
             f'Sprawdzono stron: {self.checked_pages}/{self.total_pages}',
             f'Błędy: {self.errors}, uwagi: {self.warnings}',
+            f'Obrazy poniżej {self.min_dpi} DPI po skalowaniu: {len(self.image_issues)} '
+            'Szczegóły poszczególnych obrazów są dostępne w raporcie JSON.',
             '',
         ]
         if not self.findings:
@@ -60,6 +88,9 @@ class PreflightReport:
             'checked_pages': self.checked_pages, 'total_pages': self.total_pages,
             'errors': self.errors, 'warnings': self.warnings,
             'findings': [asdict(f) for f in self.findings],
+            'min_dpi': self.min_dpi,
+            'image_issues': [asdict(x) for x in self.image_issues],
+            'format_ranges': [asdict(x) for x in self.format_ranges],
         }, ensure_ascii=False, indent=2)
 
 
@@ -72,6 +103,22 @@ def _distance_box(outer: fitz.Rect, inner: fitz.Rect) -> tuple[float, float, flo
 def _size(page: fitz.Page) -> tuple[float, float]:
     box = page.trimbox
     return (mm(box.height), mm(box.width)) if page.rotation in (90, 270) else (mm(box.width), mm(box.height))
+
+
+def _format_name(w: float, h: float) -> str:
+    """Human label only; do not change precise dimensions used for imposition."""
+    standards = (("A4", 210, 297), ("A5", 148, 210), ("A6", 105, 148))
+    for name, sw, sh in standards:
+        if abs(w-sw) <= .8 and abs(h-sh) <= .8:
+            return f'{name} pion'
+        if abs(w-sh) <= .8 and abs(h-sw) <= .8:
+            return f'{name} poziom'
+    return f'{w:.1f} × {h:.1f} mm'
+
+
+def _range_text(item: FormatRange) -> str:
+    pages = str(item.first_page) if item.first_page == item.last_page else f'{item.first_page}–{item.last_page}'
+    return f'str. {pages}: {item.format_name} ({item.width_mm:.2f} × {item.height_mm:.2f} mm)'
 
 
 def inspect_project(project: Project, *, min_dpi: int = 200,
@@ -87,15 +134,18 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
     docs = open_sources(project.jobs)
     s = project.settings
     findings: list[Finding] = []
+    image_issues: list[ImageIssue] = []
+    format_ranges: list[FormatRange] = []
     checked = 0
     total = sum(len(doc) for doc in docs.values())
     try:
         for path, doc in docs.items():
+            runs: list[FormatRange] = []
             for page_no in range(len(doc)):
                 if checked >= max_pages:
                     findings.append(Finding('UWAGA', path, 0, 'LIMIT',
                         f'Limit {max_pages} stron: pozostałe strony nie zostały sprawdzone.'))
-                    return PreflightReport(checked, total, findings)
+                    return PreflightReport(checked, total, findings, image_issues, format_ranges + runs, min_dpi)
                 page = doc[page_no]
                 checked += 1
                 pnum = page_no + 1
@@ -108,6 +158,11 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
                     label('BŁĄD', 'TRIMBOX', 'TrimBox jest poza MediaBox albo jest pusty.')
                     continue
                 width, height = _size(page)
+                if runs and abs(runs[-1].width_mm - width) <= .5 and abs(runs[-1].height_mm - height) <= .5:
+                    runs[-1] = replace(runs[-1], last_page=pnum)
+                else:
+                    runs.append(FormatRange(path, pnum, pnum, round(width, 2), round(height, 2),
+                                            _format_name(width, height)))
                 if s.scale_mode == 'Bez skalowania' and (abs(width-s.trim_w) > .5 or abs(height-s.trim_h) > .5):
                     label('BŁĄD', 'FORMAT',
                           f'TrimBox: {width:.2f} × {height:.2f} mm; docelowo: {s.trim_w:g} × {s.trim_h:g} mm. '
@@ -136,15 +191,27 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
                 if page.rotation:
                     label('INFO', 'ROTACJA', f'Źródłowe /Rotate = {page.rotation}°.')
                 try:
+                    low_dpi_on_page: list[float] = []
                     for image in page.get_image_info(hashes=False, xrefs=False):
                         box = fitz.Rect(image['bbox'])
                         if box.width <= .5 or box.height <= .5:
                             continue
-                        dpi_x = image['width'] * 72 / box.width
-                        dpi_y = image['height'] * 72 / box.height
-                        dpi = min(dpi_x, dpi_y) / factor
+                        native_dpi = min(image['width'] * 72 / box.width,
+                                         image['height'] * 72 / box.height)
+                        dpi = native_dpi / factor
                         if dpi < min_dpi:
-                            label('UWAGA', 'DPI', f'Obraz ~{dpi:.0f} DPI (minimalnie {min_dpi} DPI).')
+                            low_dpi_on_page.append(dpi)
+                            image_issues.append(ImageIssue(
+                                path, pnum, round(dpi, 1), round(native_dpi, 1),
+                                int(image['width']), int(image['height']),
+                                tuple(round(float(v), 2) for v in box), round(factor * 100, 2)))
+                    if low_dpi_on_page:
+                        count = len(low_dpi_on_page)
+                        noun = 'obraz' if count == 1 else 'obrazy' if 2 <= count <= 4 else 'obrazów'
+                        label('UWAGA', 'DPI',
+                              f'{count} {noun} poniżej {min_dpi} DPI po skalowaniu; '
+                              f'najniższe ~{min(low_dpi_on_page):.0f} DPI. '
+                              'Szczegóły poszczególnych obrazów: eksport raportu JSON.')
                 except (ValueError, RuntimeError, KeyError) as exc:
                     label('UWAGA', 'OBRAZY', f'Nie udało się sprawdzić wszystkich obrazów: {exc}')
                 try:
@@ -162,7 +229,21 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
                             label('UWAGA', 'FONT', f'Font {name} może nie być osadzony.')
                 except (ValueError, RuntimeError) as exc:
                     label('UWAGA', 'FONT', f'Nie udało się zweryfikować fontów: {exc}')
-        return PreflightReport(checked, total, findings)
+            format_ranges.extend(runs)
+            distinct_sizes: list[FormatRange] = []
+            for run in runs:
+                if not any(abs(run.width_mm - item.width_mm) <= .5 and
+                           abs(run.height_mm - item.height_mm) <= .5 for item in distinct_sizes):
+                    distinct_sizes.append(run)
+            if len(distinct_sizes) > 1:
+                sample = '; '.join(_range_text(run) for run in runs[:8])
+                if len(runs) > 8:
+                    sample += f'; … ({len(runs)} przedziałów)'
+                findings.insert(0, Finding('UWAGA', path, 0, 'MIESZANE_FORMATY',
+                    f'PDF zawiera różne formaty: {sample}. '
+                    f'Docelowy format: {s.trim_w:g} × {s.trim_h:g} mm. '
+                    'Sprawdź, czy zamierzone jest pomniejszanie/powiększanie stron.'))
+        return PreflightReport(checked, total, findings, image_issues, format_ranges, min_dpi)
     finally:
         for doc in docs.values():
             doc.close()
