@@ -1,0 +1,38 @@
+# Python / caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environments / builds
+.venv/
+venv/
+env/
+*.egg-info/
+build/
+dist/
+*.spec
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary output / local jobs
+*.tmp
+*.bak
+*.log
+*.autosave
+
+# Environment / credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx

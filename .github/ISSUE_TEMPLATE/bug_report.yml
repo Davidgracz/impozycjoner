@@ -1,0 +1,28 @@
+name: Zgłoś błąd
+description: Błąd działania aplikacji lub eksportu PDF
+labels: [bug]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Co się dzieje?
+      description: Opisz rzeczywisty i oczekiwany rezultat.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Jak odtworzyć problem?
+      description: Podaj kroki i ustawienia montażu (bez danych klientów).
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Wersja aplikacji
+      placeholder: '0.1.0'
+  - type: dropdown
+    id: os
+    attributes:
+      label: System
+      options: [Windows 11, Windows 10, Inny]

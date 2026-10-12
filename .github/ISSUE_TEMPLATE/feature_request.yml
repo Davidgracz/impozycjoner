@@ -1,0 +1,18 @@
+name: Propozycja funkcji
+description: Nowa funkcja lub usprawnienie
+labels: [enhancement]
+body:
+  - type: textarea
+    id: usecase
+    attributes:
+      label: Problem / przypadek użycia
+      description: Jaką pracę w drukarni ma to usprawnić?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proponowane rozwiązanie
+      description: Opisz funkcję i oczekiwany rezultat.
+    validations:
+      required: true
