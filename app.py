@@ -9,6 +9,7 @@ from PIL import ImageTk
 
 from engine import Job, Project, Settings, export_pdf, export_pages, geometry, load_project, preview, save_project, source_summary, PAGE_ROLES, ROLE_AUTO, ROLE_SKIP
 from preflight import inspect_project
+from labels_ui import LabelGeneratorFrame
 
 BG = '#141923'
 PANEL = '#1d2531'
@@ -44,7 +45,7 @@ PRESETS = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title('Impozycjoner Studio 0.2.4')
+        self.title('Impozycjoner Studio 0.2.5')
         self.geometry('1500x850')
         self.minsize(1000, 700)
         self.configure(background=BG)
@@ -93,10 +94,18 @@ class App(tk.Tk):
                           style='Accent.TButton' if accent else 'TButton', **kw)
 
     def _create_layout(self):
-        top = ttk.Frame(self, padding=(14, 11))
+        self.tabs = ttk.Notebook(self)
+        self.tabs.pack(fill='both', expand=True)
+        self.imposition_tab = ttk.Frame(self.tabs)
+        self.label_tab = ttk.Frame(self.tabs)
+        self.tabs.add(self.imposition_tab, text='  Impozycja PDF  ')
+        self.tabs.add(self.label_tab, text='  Generator etykiet z maili  ')
+        self.labels_ui = LabelGeneratorFrame(self.label_tab)
+        self.labels_ui.pack(fill='both', expand=True)
+        top = ttk.Frame(self.imposition_tab, padding=(14, 11))
         top.pack(fill='x')
         ttk.Label(top, text='IMPOZYCJONER', font=('Segoe UI', 19, 'bold'), foreground=ACCENT).pack(side='left', padx=(0, 4))
-        ttk.Label(top, text='STUDIO 0.2.4', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
+        ttk.Label(top, text='STUDIO 0.2.5', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
         self._button(top, 'Otwórz projekt', self.load_project).pack(side='left', padx=3)
         self._button(top, 'Zapisz projekt', self.save_project).pack(side='left', padx=3)
         self._button(top, 'Eksportuj PDF', self.export, True).pack(side='right', padx=5)
@@ -104,7 +113,7 @@ class App(tk.Tk):
         self._button(top, 'Preflight PDF', self.show_preflight).pack(side='right', padx=5)
         self._button(top, 'Odśwież podgląd', self.refresh).pack(side='right', padx=5)
 
-        body = ttk.Frame(self)
+        body = ttk.Frame(self.imposition_tab)
         body.pack(fill='both', expand=True, padx=12, pady=(0,10))
         body.columnconfigure(0, weight=0, minsize=320)
         body.columnconfigure(1, weight=1)
@@ -232,7 +241,7 @@ class App(tk.Tk):
         self.mode_var.trace_add('write',lambda *_:self.schedule_refresh())
         self.rot_var.trace_add('write',lambda *_:self.schedule_refresh())
         self.flip_var.trace_add('write',lambda *_:self.schedule_refresh())
-        bottom=ttk.Frame(self,padding=(13,5))
+        bottom=ttk.Frame(self.imposition_tab,padding=(13,5))
         bottom.pack(fill='x')
         ttk.Label(bottom,text='Impozycjoner Studio • darmowa, niezależna implementacja • Windows',foreground=MUTED).pack(side='left')
         ttk.Label(bottom,text='Ctrl+O – Dodaj PDF   Ctrl+R – Przód/tył   Ctrl+P – Preflight   Ctrl+E – Eksport',foreground=MUTED).pack(side='right')

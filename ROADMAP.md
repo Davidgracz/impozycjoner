@@ -46,3 +46,5 @@ Odniesienie: https://www.impozycjoner.pl/dokumentacja/v4
 - [ ] Opcjonalny natywny port Rust po ustaleniu stabilnego silnika
 
 **Priorytet:** zgodność rzeczywistych wynikowych PDF-ów i bezpieczeństwo druku przed kopiowaniem wyglądu UI piksel w piksel.
+
+- [x] 0.2.5: email-to-print label generator with IMAP SSL, Polish price parser and press-ready PDF.

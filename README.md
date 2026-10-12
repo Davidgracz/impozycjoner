@@ -1,6 +1,6 @@
-# Impozycjoner Studio 0.2.4
+# Impozycjoner Studio 0.2.5
 
-Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wzorowanej funkcjonalnie na procesach znanych z programu Impozycjoner 4. Wersja 0.2.4 **nie jest jeszcze pełnym zamiennikiem Impozycjonera 4**. Nie zawiera jego kodu, plików ani znaków handlowych.
+Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wzorowanej funkcjonalnie na procesach znanych z programu Impozycjoner 4. Wersja 0.2.5 **nie jest jeszcze pełnym zamiennikiem Impozycjonera 4**. Nie zawiera jego kodu, plików ani znaków handlowych.
 
 ## Uruchomienie na Windows 10/11
 
@@ -42,6 +42,20 @@ Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wz
 - Przy ustawieniu **Bez skalowania** rozmiar TrimBox źródłowego PDF musi odpowiadać użytkowi (tolerancja 0,5 mm). Przy różnych rozmiarach wyświetlany jest błąd. W trybach **Dopasuj / Wypełnij** operator jawnie decyduje o przeskalowaniu.
 - Znaczniki przy małych odstępach mogą wchodzić w obszar innych użytków, dlatego przed produkcją wykonaj kontrolę podglądu.
 - Przy dużych nakładach eksport odbywa się w głównym wątku GUI i może chwilowo blokować okno.
+
+## 0.2.5 — Generator etykiet z wiadomości e-mail
+
+Nowa zakładka **Generator etykiet z maili**, niezależna od montażu PDF:
+
+1. Wejdź w zakładkę. Podaj adres serwera IMAP obsługującego SSL (typowy port **993**), pełny login i hasło lub hasło aplikacji. Kliknij **Pobierz listę maili**; wybierz wiadomość i kliknij **Wczytaj zaznaczony mail**. W prawym panelu pojawią się etykiety. Alternatywnie możesz wklejać treść maila ze schowka albo otwierać plik TXT/EML.
+2. Parser rozpoznaje kategorie i wypunktowania (także w mailach HTML). Cena `12 zł` lub `12,50 PLN` na końcu pozycji jest oddzielana od nazwy. **Nie dopisuje ceny**, jeśli jej nie ma.
+3. Sprawdź tabelę. Każdy wpis możesz poprawić i ustawić liczbę kopii. Wygeneruj gotowy wielostronicowy PDF.
+4. Domyślnie: **Ciastka / wypieki — 110×50 mm z ceną, A4 poziomo 2×4**; **Lody — 90×50 mm bez ceny, A4 pionowo 2×5**. Inne kategorie można przypisać do szablonu. Tekst dopasowywany jest do pola bez rastrowania, fonty z polskimi znakami pobierane są z systemu (preferowana Futura, inaczej Arial/Segoe UI).
+5. PDF grupuje kategorie, może mieć różną orientację A4 na kolejnych stronach. Drukuj **100% / rozmiar rzeczywisty**, bez dopasowania do strony. Przed produkcją sprawdź plik oraz wykonaj wydruk próbny.
+
+**Poczta i poufność:** Aplikacja łączy się bezpośrednio z podanym serwerem IMAP przez SSL i tylko wtedy, gdy naciśniesz przycisk. Nie usuwa wiadomości i nie oznacza ich jako przeczytane (`BODY.PEEK`, folder w trybie tylko do odczytu). Opcjonalnie zapamiętuje lokalnie **serwer, port, login i filtr**, ale nigdy hasło ani treść maili. Hasło wpisujesz ponownie po uruchomieniu aplikacji. Jeśli dostawca wymaga OAuth2 zamiast zwykłego logowania IMAP / hasła aplikacji, ta wersja nie obsługuje takiego logowania.
+
+**Przykład:** `examples/mail_przykladowy_etykiety.txt` zawiera anonimową wiadomość testową (11 wypieków, 7 lodów). `examples/demo_etykiety_z_maila.pdf` zawiera gotowy 3-stronicowy PDF z tego tekstu. Nie używaj przykładowej listy jako zamówienia produkcyjnego.
 
 ## 0.2.4 — przód / tył: dwa pliki i jeden wspólny rewers
 
@@ -85,6 +99,8 @@ Wynikowy tekst/wektory nie są rasteryzowane. Fotografie zachowują istniejącą
 
 - `engine.py` — geometria arkusza, plan stron, osadzanie stron PDF i eksport, format projektów.
 - `preflight.py` — podstawowa diagnostyka PDF i raporty TXT/JSON.
+- `labels.py` — parser wiadomości, IMAP SSL, generowanie PDF z etykietami.
+- `labels_ui.py` — zakładka do pobierania poczty, edycji etykiet i eksportu.
 - `app.py` — interfejs desktopowy (Tkinter + Pillow).
 - `tests/` — automatyczne testy regresyjne PDF.
 - `ROADMAP.md` — moduły planowane do pełnej parytetowej funkcjonalności.

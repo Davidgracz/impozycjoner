@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.5 — 2026-10-12
+
+- Added a dedicated email-to-print labels tab with direct IMAP-over-SSL mail listing and read-only fetch.
+- Added MIME plain-text/HTML extraction, category detection and PLN price parsing without inventing missing prices.
+- Restored bakery 110x50 mm labels with prices (A4 landscape) and ice-cream 90x50 mm labels without prices (A4 portrait).
+- Added editable label entries, per-item copies, category templates, and Unicode vector PDF export.
+- Added optional local persistence of IMAP host, port, login and filter; never store password or email body.
+- Added anonymized sample email, a production-style vector PDF example, and regression tests.
+
+
 ## 0.2.4 — 2026-10-12
 
 - Added editable recto/verso roles for each input PDF and individual PDF pages (Normal, Front, Paired Back, Shared Back, Exclude).
