@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1 — 2026-10-12
+
+- Fixed false TRIMBOX preflight errors when a PDF has a non-zero MediaBox origin.
+- Used consistent MuPDF geometry for MediaBox, TrimBox and BleedBox in PDF export.
+- Fixed full-media CropBox setup for shifted MediaBox documents.
+- Added regression tests covering offset media boxes, 22-page files and real invalid TrimBox rejection.
+
 ## 0.2.0 — 2026-10-12
 
 - Added the Preflight PDF window and export gate, with TXT/JSON reports.

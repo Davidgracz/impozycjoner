@@ -184,3 +184,73 @@ def test_geometry_rotation_180_and_270():
     assert geometry(s).rotation==180
     s.rotation='270'
     assert geometry(s).rotation==270
+
+
+def make_offset_mediabox_source(folder: Path, name: str, count: int = 1,
+                                offset_x: float = 36, offset_y: float = 45):
+    """PDF whose raw MediaBox has a non-zero origin (common in DTP exports)."""
+    from engine import pt
+    document = fitz.open()
+    media_w, media_h = pt(94), pt(54)
+    b = pt(2)
+    for i in range(count):
+        page = document.new_page(width=media_w, height=media_h)
+        # These are raw PDF coordinates; PyMuPDF normalizes only the y
+        # coordinates of TrimBox and BleedBox, not MediaBox.
+        document.xref_set_key(page.xref, 'MediaBox',
+            f'[{offset_x} {offset_y} {offset_x+media_w} {offset_y+media_h}]')
+        document.xref_set_key(page.xref, 'CropBox',
+            f'[{offset_x} {offset_y} {offset_x+media_w} {offset_y+media_h}]')
+        document.xref_set_key(page.xref, 'TrimBox',
+            f'[{offset_x+b} {offset_y+b} {offset_x+media_w-b} {offset_y+media_h-b}]')
+        document.xref_set_key(page.xref, 'BleedBox',
+            f'[{offset_x} {offset_y} {offset_x+media_w} {offset_y+media_h}]')
+        page = document.reload_page(page)
+        page.insert_text((pt(15), pt(20)), f'OFFSET-{i+1}', fontsize=12)
+    filename = folder / name
+    document.save(filename)
+    document.close()
+    return str(filename)
+
+
+def test_media_box_normalization_and_22_page_preflight(tmp_path):
+    from engine import media_rect
+    from preflight import inspect_project
+    src = make_offset_mediabox_source(tmp_path, 'offset-22.pdf', count=22)
+    with fitz.open(src) as doc:
+        assert doc[0].mediabox.y0 == 45
+        assert doc[0].trimbox.y0 < doc[0].mediabox.y0
+        assert media_rect(doc[0]).contains(doc[0].trimbox)
+    s = Settings(bleed=2, crop_marks=False)
+    report = inspect_project(Project(s, [Job(src)]))
+    assert report.checked_pages == 22
+    assert report.errors == 0, report.to_text()
+    assert report.warnings == 0, report.to_text()
+
+
+def test_offset_mediabox_exports_without_dropping_page_or_bleed(tmp_path):
+    from preflight import inspect_project
+    src = make_offset_mediabox_source(tmp_path, 'offset-negative.pdf',
+                                      offset_x=-22, offset_y=-67)
+    s = Settings(bleed=2, crop_marks=False)
+    report = inspect_project(Project(s,[Job(src)]))
+    assert report.errors == 0, report.to_text()
+    output = tmp_path / 'offset-out.pdf'
+    assert export_pdf(Project(s,[Job(src)]), str(output)) == 1
+    with fitz.open(output) as doc:
+        assert len(doc) == 1
+        assert 'OFFSET-1' in doc[0].get_text(), doc[0].get_text()
+
+
+def test_truly_invalid_trimbox_outside_media_is_rejected(tmp_path):
+    from preflight import inspect_project
+    src = make_offset_mediabox_source(tmp_path, 'invalid-offset.pdf')
+    with fitz.open(src) as doc:
+        page = doc[0]
+        # Extend 15pt beyond MediaBox right edge.
+        media = page.mediabox
+        doc.xref_set_key(page.xref, 'TrimBox',
+            f'[{media.x0+5} {media.y0+5} {media.x1+15} {media.y1-5}]')
+        doc.saveIncr()
+    report = inspect_project(Project(Settings(bleed=0),[Job(src)]))
+    assert any(f.code == 'TRIMBOX' for f in report.findings)

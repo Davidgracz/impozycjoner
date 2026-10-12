@@ -1,4 +1,4 @@
-"""Impozycjoner Studio 0.2.0 - original PDF imposition engine.
+"""Impozycjoner Studio 0.2.1 - original PDF imposition engine.
 
 Uses PDF form XObjects via PyMuPDF. No source pages are rasterized during export.
 Units exposed to the operator are millimetres; PyMuPDF operates in points.
@@ -24,6 +24,21 @@ def pt(mm: float) -> float:
 
 def mm(points: float) -> float:
     return points / PT_PER_MM
+
+
+def media_rect(page: fitz.Page) -> fitz.Rect:
+    """MediaBox in the same (unrotated MuPDF) coordinates as Trim/BleedBox.
+
+    PyMuPDF exposes `Page.mediabox` in *PDF* coordinates, with the original
+    vertical origin. CropBox, TrimBox and BleedBox use MuPDF coordinates where
+    y=0 corresponds to the MediaBox's upper edge. Comparing them without
+    normalising causes false TRIMBOX errors for non-zero MediaBox origins.
+
+    The horizontal coordinates are already in the same space; only y shifts.
+    This normalised rect can also be passed to Page.set_cropbox().
+    """
+    media = fitz.Rect(page.mediabox)
+    return fitz.Rect(media.x0, 0, media.x1, media.height)
 
 
 @dataclass
@@ -276,7 +291,7 @@ def _place_pdf(target: fitz.Page, p: SourcePage, slot: Slot, s: Settings,
                sources: dict[str, fitz.Document]):
     original = sources[p.path][p.index]
     trim = fitz.Rect(original.trimbox)
-    media = fitz.Rect(original.mediabox)
+    media = media_rect(original)
     original_angle = original.rotation
     apparent_w, apparent_h = ((mm(trim.height), mm(trim.width))
                               if original_angle in (90, 270)
@@ -377,7 +392,7 @@ def export_pdf(project: Project, output: str):
         if count == 0:
             raise ValueError('Brak stron do montażu')
         out.set_metadata({'title':'Impozycjoner Studio - montaż PDF',
-                          'creator':'Impozycjoner Studio 0.2.0'})
+                          'creator':'Impozycjoner Studio 0.2.1'})
         Path(output).parent.mkdir(parents=True, exist_ok=True)
         out.save(output, garbage=3, deflate=True)
         return count

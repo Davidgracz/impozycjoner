@@ -11,7 +11,7 @@ import json
 
 import pymupdf as fitz
 
-from engine import Job, Project, Settings, mm, open_sources, validate
+from engine import Job, Project, Settings, mm, media_rect, open_sources, validate
 
 
 @dataclass(frozen=True)
@@ -102,7 +102,7 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
                 label = lambda severity, code, message: findings.append(
                     Finding(severity, path, pnum, code, message))
                 trim = page.trimbox
-                media = page.mediabox
+                media = media_rect(page)
                 bleed = page.bleedbox
                 if trim.is_empty or any(abs(a-b) > .05 for a,b in zip(trim, trim & media)):
                     label('BŁĄD', 'TRIMBOX', 'TrimBox jest poza MediaBox albo jest pusty.')
