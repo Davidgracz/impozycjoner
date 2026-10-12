@@ -146,6 +146,6 @@ def test_settings_persist_without_password(tmp_path,monkeypatch):
     # Integration UI with Tk requires a graphical display; static check keeps
     # CI runners headless and ensures the password never enters config JSON.
     from labels_ui import LabelGeneratorFrame
-    source=Path(__file__).parent.parent.joinpath('labels_ui.py').read_text()
+    source=Path(__file__).parent.parent.joinpath('labels_ui.py').read_text(encoding='utf-8')
     assert "'host':self.host.get().strip()" in source
     assert 'self.password.get()' not in source[source.index('def _save_mail_settings'):source.index('def _imap_args')]
