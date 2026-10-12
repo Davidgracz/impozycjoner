@@ -1,6 +1,6 @@
-# Impozycjoner Studio 0.2.3
+# Impozycjoner Studio 0.2.4
 
-Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wzorowanej funkcjonalnie na procesach znanych z programu Impozycjoner 4. Wersja 0.2.3 **nie jest jeszcze pełnym zamiennikiem Impozycjonera 4**. Nie zawiera jego kodu, plików ani znaków handlowych.
+Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wzorowanej funkcjonalnie na procesach znanych z programu Impozycjoner 4. Wersja 0.2.4 **nie jest jeszcze pełnym zamiennikiem Impozycjonera 4**. Nie zawiera jego kodu, plików ani znaków handlowych.
 
 ## Uruchomienie na Windows 10/11
 
@@ -17,7 +17,7 @@ Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wz
 - Automatyczna siatka z obrotem 0/90° wybierająca więcej użytków.
 - Ręcznie ustawiane wymiary, spady, odstępy, marginesy i kolumny/wiersze.
 - Aktualizowany podgląd prawdziwego wynikowego PDF.
-- Montaż jednostronny; dwustronny: kolejne 2 strony źródła traktowane jako przód i tył użytku, obracanie po krótkiej/długiej krawędzi arkusza.
+- Montaż jednostronny i dwustronny z definiowaniem przodów, sparowanych tyłów oraz jednego wspólnego rewersu — całe pliki lub wybrane strony. Jeśli nic nie oznaczysz, działa dawne parowanie 1/2, 3/4. Obrót według wskazanej krótkiej/długiej krawędzi arkusza.
 - Podstawowa broszura zeszytowa 2-up, oprawa zeszytowa; automatyczne puste strony do wielokrotności czterech.
 - Linie cięcia (wektorowe), numery stron; wektorowy wynikowy PDF bez rasteryzacji zawartości.
 - **Jawne skalowanie wielostronicowego PDF do innego formatu netto**: Bez skalowania (blokada niezgodnych formatów), Dopasuj (proporcjonalnie, cała treść, możliwe marginesy) lub Wypełnij (proporcjonalnie, przycięcie). Brak rozciągania w trybach skalowania.
@@ -27,7 +27,7 @@ Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wz
 - **Preflight PDF**: kontrola wymiarów TrimBox każdej strony, dostępnego fizycznego spadu, uproszczone DPI obrazów i fontów, TXT/JSON; błędy geometrii blokują eksport, a ostrzeżenia wymagają potwierdzenia.
 - **Preflight 0.2.3**: raport ostrzega, gdy jeden PDF zawiera różne rozmiary stron (np. strony 1–12 A4 i 13–22 A6). Ostrzeżenia DPI są zgrupowane na stronę, a kompletne dane każdego problematycznego obrazu (w tym efektywne DPI po skalowaniu, położenie w pt i wymiary pikselowe) pozostają w eksporcie JSON.
 - Poprawione umieszczanie spadów przy obrocie użytków 90/180/270° i źródłowych stron PDF z /Rotate; źródłowego PDF nie rozciągamy automatycznie, jeśli format nie pasuje.
-- Zapis/odczyt projektu `.psimp` (archiwum ZIP + JSON, względne ścieżki PDF, oryginalne pliki nie są kopiowane do projektu).
+- Zapis/odczyt projektu `.psimp` (archiwum ZIP + JSON, względne ścieżki PDF i przypisania roli każdej strony; oryginalne pliki nie są kopiowane do projektu).
 
 ## Ograniczenia — ważne w druku produkcyjnym
 
@@ -35,13 +35,34 @@ Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wz
 
 - Przed produkcją **sprawdź kontrolny PDF i wydruk dwustronny**, szczególnie orientację recto/verso na konkretnej maszynie.
 - W tej wersji nie ma jeszcze gang-run, impozycji wykrojników, offsetowych paserów, pełnego preflightu CMYK/spot/ICC/PDF-X, creep ani kompletnych schematów falcowania.
-- W montażu wielostronicowego PDF jedna strona to jeden użytek. W duplex kolejne pary stron w danym PDF to przód/tył, bez przechodzenia par pomiędzy różnymi plikami.
+- W trybie Dwustronnie strony oznaczone `Normalnie` są łączone w pary 1/2, 3/4 w ramach danego pliku/nakładu; osobne strony `Przód` są łączone z `Tył sparowany` w kolejności wybranych plików/stron. `Tył wspólny` jest tylko jeden na projekt i powtarza się pod wszystkimi przodami; w tej sytuacji nieoznaczone strony również stają się przodami. Zbyt mało sparowanych tyłów bez wspólnego tyłu powoduje błąd preflight. Przypisanie rewersu wymaga trybu **Dwustronnie**. W innych trybach działa jedynie `Pomiń`.
 - W trybie broszury jest tylko jeden plik wejściowy, a ustawiona szerokość/wysokość użytku dotyczy **pojedynczej strony po złożeniu**. To prosty układ 2-up, bez korekcji creep.
 - Program **nie tworzy nowych spadów z powietrza**. Jeśli źródło PDF nie ma fizycznego obrazu poza TrimBox, obszar spadu pozostanie pusty. Kontrola sprawdza dostępny obszar w geometrii pliku, **nie** potwierdza, że grafika faktycznie wypełnia spad.
 - Preflight jest **uproszczony**: wykrywa część potencjalnie nieosadzonych fontów i niskie DPI rastrowe, ale nie zastępuje profesjonalnej inspekcji separacji, overprintu czy PDF/X. Próg DPI weryfikuje obrazki heurystycznie, nie analizuje całego wyglądu strony.
 - Przy ustawieniu **Bez skalowania** rozmiar TrimBox źródłowego PDF musi odpowiadać użytkowi (tolerancja 0,5 mm). Przy różnych rozmiarach wyświetlany jest błąd. W trybach **Dopasuj / Wypełnij** operator jawnie decyduje o przeskalowaniu.
 - Znaczniki przy małych odstępach mogą wchodzić w obszar innych użytków, dlatego przed produkcją wykonaj kontrolę podglądu.
 - Przy dużych nakładach eksport odbywa się w głównym wątku GUI i może chwilowo blokować okno.
+
+## 0.2.4 — przód / tył: dwa pliki i jeden wspólny rewers
+
+1. Ustaw **Tryb → Dwustronnie**.
+2. Dodaj PDF `Przody.pdf` i PDF `Tyl.pdf`.
+3. Zaznacz `Przody.pdf`, kliknij **Przód / tył — role pliku i stron…**. Wybierz `Przód`, kliknij **Ustaw rolę CAŁEGO PLIKU** i **Zapisz przypisanie**.
+4. Dla pliku `Tyl.pdf` z **jedną stroną** ustaw rolę całego pliku **Tył wspólny**. Jeżeli tyły są różne, wybierz zamiast tego **Tył sparowany** dla PDF zawierającego tyle samo stron co przody.
+5. Sprawdź **Odwracanie arkusza**, przewiń podgląd na verso, zrób **Preflight PDF** i eksport.
+
+### Gdy jeden PDF ma 22 strony, a np. strona 13 jest wspólnym tyłem
+
+- Zaznacz plik i otwórz **Przód / tył — role pliku i stron…**.
+- Wybierz `Tył wspólny`, wpisz zakres `13`, kliknij **Zastosuj do zakresu** i zapisz.
+- Pozostałe strony mogą mieć rolę `Normalnie`: silnik potraktuje je jako przody, a stronę 13 wydrukuje na każdym odpowiadającym verso. Strony nie zmieniają kolejności.
+- Jeśli ma być inaczej, oznacz wybrane strony jako `Przód`, `Tył sparowany` lub `Pomiń`.
+
+Role można przypisać do **całego pliku**, wielu **zaznaczonych stron** lub wpisując zakres `1,3-8,22`. Stare projekty `.psimp` zachowują dawną kolejność bez przypisanych ról.
+
+Przykładowe materiały znajdziesz w `examples/role_demo_*.pdf` i `examples/role_demo.psimp`.
+
+**Ważne w produkcji:** poprawność ułożenia verso zależy od podawania i obracania arkusza przez konkretną maszynę. Sprawdź wydruk próbny z numerami/punktami rejestracyjnymi przed całą serią. Ten etap nie zastępuje jeszcze edytora użytków/arkuszy z Impozycjonera 4.
 
 ## Przykład: 22-stronicowy A4 do A6
 

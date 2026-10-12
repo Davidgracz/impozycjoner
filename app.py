@@ -7,7 +7,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from PIL import ImageTk
 
-from engine import Job, Project, Settings, export_pdf, export_pages, geometry, load_project, preview, save_project, source_summary
+from engine import Job, Project, Settings, export_pdf, export_pages, geometry, load_project, preview, save_project, source_summary, PAGE_ROLES, ROLE_AUTO, ROLE_SKIP
 from preflight import inspect_project
 
 BG = '#141923'
@@ -44,7 +44,7 @@ PRESETS = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title('Impozycjoner Studio 0.2.3')
+        self.title('Impozycjoner Studio 0.2.4')
         self.geometry('1500x850')
         self.minsize(1000, 700)
         self.configure(background=BG)
@@ -96,7 +96,7 @@ class App(tk.Tk):
         top = ttk.Frame(self, padding=(14, 11))
         top.pack(fill='x')
         ttk.Label(top, text='IMPOZYCJONER', font=('Segoe UI', 19, 'bold'), foreground=ACCENT).pack(side='left', padx=(0, 4))
-        ttk.Label(top, text='STUDIO 0.2.3', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
+        ttk.Label(top, text='STUDIO 0.2.4', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
         self._button(top, 'Otwórz projekt', self.load_project).pack(side='left', padx=3)
         self._button(top, 'Zapisz projekt', self.save_project).pack(side='left', padx=3)
         self._button(top, 'Eksportuj PDF', self.export, True).pack(side='right', padx=5)
@@ -106,12 +106,12 @@ class App(tk.Tk):
 
         body = ttk.Frame(self)
         body.pack(fill='both', expand=True, padx=12, pady=(0,10))
-        body.columnconfigure(0, weight=0, minsize=260)
+        body.columnconfigure(0, weight=0, minsize=320)
         body.columnconfigure(1, weight=1)
         body.columnconfigure(2, weight=0, minsize=310)
         body.rowconfigure(0, weight=1)
 
-        jobs = ttk.Frame(body, style='Panel.TFrame', padding=12, width=280)
+        jobs = ttk.Frame(body, style='Panel.TFrame', padding=12, width=335)
         jobs.grid(row=0,column=0,sticky='nsew',padx=(0,7))
         jobs.grid_propagate(False)
         ttk.Label(jobs, text='PLIKI WEJŚCIOWE', style='Header.TLabel').pack(anchor='w',pady=(3,10))
@@ -121,18 +121,21 @@ class App(tk.Tk):
         self._button(btns, 'Usuń',self.remove_file).pack(side='left',padx=(5,0))
         tree_frame = ttk.Frame(jobs, style='Panel.TFrame')
         tree_frame.pack(fill='both',expand=True)
-        self.files = ttk.Treeview(tree_frame, columns=('p','copies'),show='tree headings',selectmode='browse')
+        self.files = ttk.Treeview(tree_frame, columns=('p','copies','role'),show='tree headings',selectmode='browse')
         self.files.heading('#0',text='Plik')
         self.files.heading('p',text='Str.')
         self.files.heading('copies',text='Nakład')
-        self.files.column('#0',width=135,stretch=True)
+        self.files.heading('role',text='Rola')
+        self.files.column('#0',width=110,stretch=True)
         self.files.column('p',width=38,stretch=False,anchor='center')
         self.files.column('copies',width=51,stretch=False,anchor='center')
+        self.files.column('role',width=80,stretch=False,anchor='center')
         self.files.pack(side='left',fill='both',expand=True)
         bar=ttk.Scrollbar(tree_frame,orient='vertical',command=self.files.yview)
         bar.pack(side='right',fill='y')
         self.files.configure(yscrollcommand=bar.set)
         self.files.bind('<<TreeviewSelect>>',self._tree_selection)
+        self.files.bind('<Double-1>',lambda event:self.edit_page_roles())
         self.selected_info=tk.StringVar(value='Wczytaj pliki PDF, aby rozpocząć montaż.')
         ttk.Label(jobs,textvariable=self.selected_info,style='Muted.TLabel',wraplength=235,justify='left').pack(anchor='w',pady=(10,7))
         copies_frame = ttk.Frame(jobs, style='Panel.TFrame')
@@ -143,7 +146,10 @@ class App(tk.Tk):
         self.copies_entry.pack(side='left',padx=6)
         self.copies_entry.bind('<Return>',lambda e:self.change_copies())
         self._button(copies_frame,'Zmień',self.change_copies).pack(side='left')
-        ttk.Label(jobs,text='Kolejność plików = kolejność montażu.',style='Muted.TLabel',wraplength=235).pack(anchor='w',pady=3)
+        self._button(jobs, 'Przód / tył — role pliku i stron…', self.edit_page_roles,
+                     accent=True).pack(fill='x', pady=(3, 7))
+        ttk.Label(jobs,text='Role stosuje się w trybie Dwustronnie. Strony można oznaczać pojedynczo lub zakresami.',
+                  style='Muted.TLabel',wraplength=300).pack(anchor='w',pady=3)
         reorder = ttk.Frame(jobs, style='Panel.TFrame')
         reorder.pack(fill='x')
         self._button(reorder,'↑ W górę',lambda:self.move_job(-1)).pack(side='left',expand=True,fill='x',padx=(0,3))
@@ -229,11 +235,12 @@ class App(tk.Tk):
         bottom=ttk.Frame(self,padding=(13,5))
         bottom.pack(fill='x')
         ttk.Label(bottom,text='Impozycjoner Studio • darmowa, niezależna implementacja • Windows',foreground=MUTED).pack(side='left')
-        ttk.Label(bottom,text='Ctrl+O – Dodaj PDF   Ctrl+S – Zapisz   Ctrl+P – Preflight   Ctrl+E – Eksport',foreground=MUTED).pack(side='right')
+        ttk.Label(bottom,text='Ctrl+O – Dodaj PDF   Ctrl+R – Przód/tył   Ctrl+P – Preflight   Ctrl+E – Eksport',foreground=MUTED).pack(side='right')
         self.bind('<Control-o>',lambda e:self.add_files())
         self.bind('<Control-s>',lambda e:self.save_project())
         self.bind('<Control-e>',lambda e:self.export())
         self.bind('<Control-p>',lambda e:self.show_preflight())
+        self.bind('<Control-r>',lambda e:self.edit_page_roles())
 
     def _separator(self,frm):
         ttk.Separator(frm,orient='horizontal').pack(fill='x',pady=(10,3))
@@ -345,7 +352,8 @@ class App(tk.Tk):
             except Exception:
                 pages='!'
                 name=Path(j.path).name+' [BRAK]'
-            self.files.insert('', 'end', iid=str(i), text=name, values=(pages,j.copies))
+            self.files.insert('', 'end', iid=str(i), text=name,
+                              values=(pages,j.copies, j.role if not j.page_roles else 'Mieszane'))
         if selected is not None and str(selected) in self.files.get_children():
             self.files.selection_set(str(selected))
 
@@ -356,9 +364,139 @@ class App(tk.Tk):
         self.copies_var.set(str(j.copies))
         try:
             count,w,h=source_summary(j.path)
-            self.selected_info.set(f'{Path(j.path).name}\n{count} str. · TrimBox: {w} × {h} mm')
+            self.selected_info.set(f'{Path(j.path).name}\n{count} str. · TrimBox: {w} × {h} mm\nRola: {j.role}'
+                                       + (f' (wyjątki: {len(j.page_roles)})' if j.page_roles else ''))
         except Exception as e:
             self.selected_info.set(str(e))
+
+    def edit_page_roles(self):
+        """Assign one file role or page overrides by multi-select/range."""
+        selection = self.files.selection()
+        if not selection:
+            messagebox.showinfo('Wybierz plik', 'Zaznacz plik PDF po lewej stronie.')
+            return
+        idx = int(selection[0])
+        job = self.project.jobs[idx]
+        try:
+            count, _, _ = source_summary(job.path)
+        except Exception as exc:
+            messagebox.showerror('Błąd PDF', str(exc))
+            return
+
+        dlg = tk.Toplevel(self)
+        dlg.title('Przód / tył — '+Path(job.path).name)
+        dlg.geometry('760x690')
+        dlg.minsize(630,520)
+        dlg.configure(bg=BG)
+        dlg.transient(self)
+        dlg.grab_set()
+        role = tk.StringVar(value=job.role)
+        default = tk.StringVar(value=job.role)
+        edits = dict(job.page_roles)
+
+        top = ttk.Frame(dlg, padding=14)
+        top.pack(fill='x')
+        ttk.Label(top,text=f'{Path(job.path).name}  •  {count} stron',
+                  font=('Segoe UI',12,'bold')).pack(anchor='w')
+        ttk.Label(top,text='Normalnie = pary 1/2, 3/4…; Przód = czeka na rewers; '
+                       'Tył sparowany = kolejny rewers; Tył wspólny = rewers wszystkich przodów.',
+                  wraplength=680).pack(anchor='w',pady=(6,5))
+        r = ttk.Frame(top)
+        r.pack(fill='x',pady=6)
+        ttk.Label(r,text='Wybierz rolę:').pack(side='left')
+        choice = ttk.Combobox(r,textvariable=role,values=PAGE_ROLES, state='readonly',width=23)
+        choice.pack(side='left',padx=9)
+        ttk.Label(r,text='Domyślnie dla pliku:').pack(side='left',padx=(12,4))
+        ttk.Label(r,textvariable=default,foreground=ACCENT).pack(side='left')
+
+        table_frame=ttk.Frame(dlg,padding=(14,0,14,4))
+        table_frame.pack(fill='both',expand=True)
+        tree=ttk.Treeview(table_frame,columns=('role',),show='tree headings',selectmode='extended')
+        tree.heading('#0',text='Strona')
+        tree.heading('role',text='Przypisana rola')
+        tree.column('#0',width=100,stretch=False)
+        tree.column('role',width=380)
+        tree.pack(side='left',fill='both',expand=True)
+        sb=ttk.Scrollbar(table_frame,orient='vertical',command=tree.yview)
+        sb.pack(side='right',fill='y')
+        tree.configure(yscrollcommand=sb.set)
+        for page in range(1,count+1):
+            tree.insert('', 'end', iid=str(page),text=str(page),values=(edits.get(str(page),job.role),))
+
+        def update_rows():
+            for page in range(1,count+1):
+                tree.set(str(page),'role',edits.get(str(page),default.get()))
+        def set_all():
+            default.set(role.get())
+            edits.clear()
+            update_rows()
+        def apply_list(pages):
+            if not pages:
+                messagebox.showinfo('Zaznacz strony', 'Wybierz strony w tabeli albo wpisz zakres.',parent=dlg)
+                return
+            for page in pages:
+                if role.get() == default.get():
+                    edits.pop(str(page), None)
+                else:
+                    edits[str(page)] = role.get()
+            update_rows()
+        def parse_range(value):
+            result = set()
+            for token in value.replace(';',',').split(','):
+                token = token.strip()
+                if not token: continue
+                if '-' in token:
+                    parts = token.split('-')
+                    if len(parts)!=2 or not all(t.strip().isdigit() for t in parts):
+                        raise ValueError('Nieprawidłowy zakres: '+token)
+                    lo,hi=map(int,parts)
+                    if lo>hi: raise ValueError('Zakres musi rosnąć: '+token)
+                    result.update(range(lo,hi+1))
+                elif token.isdigit():
+                    result.add(int(token))
+                else:
+                    raise ValueError('Nieprawidłowy numer strony: '+token)
+            if any(i<1 or i>count for i in result):
+                raise ValueError(f'Numery muszą być w zakresie 1–{count}')
+            return sorted(result)
+        def apply_range():
+            try:
+                pages=parse_range(ranges.get())
+                apply_list(pages)
+                if pages:
+                    tree.selection_set(tuple(str(n) for n in pages))
+                    tree.see(str(pages[0]))
+            except ValueError as exc:
+                messagebox.showerror('Nieprawidłowy zakres',str(exc),parent=dlg)
+
+        row=ttk.Frame(dlg,padding=(14,5))
+        row.pack(fill='x')
+        self._button(row,'Ustaw rolę CAŁEGO PLIKU',set_all).pack(side='left',padx=(0,7))
+        self._button(row,'Zastosuj do zaznaczonych stron',
+                     lambda:apply_list([int(v) for v in tree.selection()])).pack(side='left')
+        range_row=ttk.Frame(dlg,padding=(14,3))
+        range_row.pack(fill='x')
+        ttk.Label(range_row,text='Zakres (np. 1,3-8,22):').pack(side='left')
+        ranges=tk.StringVar()
+        entry=ttk.Entry(range_row,textvariable=ranges,width=23)
+        entry.pack(side='left',padx=(6,8))
+        entry.bind('<Return>',lambda _e:apply_range())
+        self._button(range_row,'Zastosuj do zakresu',apply_range).pack(side='left')
+        ttk.Label(dlg,text='Ważne: wybierz tryb Dwustronnie. Jeden „Tył wspólny” powtarza się na verso '
+                       'każdego przodu; gdy go ustawisz, nieoznaczone strony są przodami.',
+                  wraplength=690,foreground=MUTED).pack(anchor='w',padx=15,pady=(6,5))
+        bottom=ttk.Frame(dlg,padding=12)
+        bottom.pack(fill='x')
+        def save():
+            # Validation will also run before generating the PDF.
+            job.role = default.get()
+            job.page_roles = {k:v for k,v in edits.items() if v!=job.role}
+            self._render_jobs(idx)
+            self.side_index=0
+            dlg.destroy()
+            self.refresh()
+        self._button(bottom,'Anuluj',dlg.destroy).pack(side='right')
+        self._button(bottom,'Zapisz przypisanie',save,True).pack(side='right',padx=8)
 
     def remove_file(self):
         sel=self.files.selection()

@@ -24,7 +24,8 @@ Odniesienie: https://www.impozycjoner.pl/dokumentacja/v4
 - [ ] Optymalizacja wielowariantowa: odpady/nakłady/koszt rozcięcia
 - [ ] Ręczne przesuwanie/obracanie/użytkowanie na podglądzie
 - [ ] Kreator podziału arkusza, szablony prac
-- [ ] Montaż wieloarkuszowy; duplex z precyzyjnym mapowaniem strony tylnej
+- [x] Przypisywanie ról całemu PDF lub dowolnym stronom: przód, tył sparowany, tył wspólny, pomiń
+- [ ] Montaż wieloarkuszowy i pełny edytor pojedynczych użytków recto/verso (również osobne obroty, niezależne wyrównanie)
 
 ## 0.4 — Montaż książek i falcowanie
 - [ ] Oprawa klejona, zeszytowa, szyta; składki 4/8/12/16/32

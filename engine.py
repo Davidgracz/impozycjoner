@@ -1,4 +1,4 @@
-"""Impozycjoner Studio 0.2.3 - original PDF imposition engine.
+"""Impozycjoner Studio 0.2.4 - original PDF imposition engine.
 
 Uses PDF form XObjects via PyMuPDF. No source pages are rasterized during export.
 Units exposed to the operator are millimetres; PyMuPDF operates in points.
@@ -14,6 +14,14 @@ import json
 import zipfile
 
 import pymupdf as fitz
+
+# Role labels are persisted in project files; keep them stable across releases.
+ROLE_AUTO = 'Normalnie'
+ROLE_FRONT = 'Przód'
+ROLE_BACK = 'Tył sparowany'
+ROLE_SHARED = 'Tył wspólny'
+ROLE_SKIP = 'Pomiń'
+PAGE_ROLES = (ROLE_AUTO, ROLE_FRONT, ROLE_BACK, ROLE_SHARED, ROLE_SKIP)
 
 PT_PER_MM = 72.0 / 25.4
 
@@ -45,6 +53,11 @@ def media_rect(page: fitz.Page) -> fitz.Rect:
 class Job:
     path: str
     copies: int = 1
+    role: str = ROLE_AUTO
+    page_roles: dict[str, str] = field(default_factory=dict)  # 1-based page numbers
+
+    def role_for(self, zero_based_page: int) -> str:
+        return self.page_roles.get(str(zero_based_page + 1), self.role)
 
 
 @dataclass
@@ -169,26 +182,100 @@ def geometry(s: Settings) -> Geometry:
     return max(candidates, key=lambda g: (g.capacity, -(g.rotation == 90)))
 
 
-def _page_refs(jobs: list[Job], documents: dict[str, fitz.Document]) -> Iterator[SourcePage]:
+def validate_job_roles(jobs: list[Job], documents: dict[str, fitz.Document]):
+    """Validate page assignment even when the operator only requested preflight."""
     for job in jobs:
         if job.copies < 1:
             raise ValueError('Nakład musi być >= 1')
-        doc = documents[job.path]
+        if job.role not in PAGE_ROLES:
+            raise ValueError(f'Nieznana rola pliku {Path(job.path).name}: {job.role}')
+        count = len(documents[job.path])
+        for number, role in job.page_roles.items():
+            try:
+                number_int = int(number)
+            except (ValueError, TypeError):
+                raise ValueError(f'Nieprawidłowy numer strony: {number!r}') from None
+            if str(number_int) != number or number_int < 1 or number_int > count:
+                raise ValueError(f'{Path(job.path).name}: strona {number!r} poza zakresem 1–{count}')
+            if role not in PAGE_ROLES:
+                raise ValueError(f'{Path(job.path).name}, strona {number}: nieznana rola {role!r}')
+
+
+def _page_refs(jobs: list[Job], documents: dict[str, fitz.Document]) -> Iterator[SourcePage]:
+    """Single-sided and standalone export: only Pomiń changes source order."""
+    validate_job_roles(jobs, documents)
+    for job in jobs:
         for _ in range(job.copies):
-            for i in range(len(doc)):
-                yield SourcePage(job.path, i)
+            for i in range(len(documents[job.path])):
+                if job.role_for(i) != ROLE_SKIP:
+                    yield SourcePage(job.path, i)
 
 
 def _duplex_pairs(jobs: list[Job], documents: dict[str, fitz.Document]):
-    """Each input PDF represents one logical job; duplex pairs do not cross jobs."""
+    """Build logical recto/verso pairs before putting them into sheet slots.
+
+    - Normalnie: legacy consecutive pairs within each job/copy.
+    - Przód: next Tył sparowany in global file/page order.
+    - Tył wspólny: one PDF page repeated under all explicit fronts; any
+      Normalnie pages are also interpreted as fronts when it exists.
+    - Pomiń: excluded from both sides.
+
+    Explicit backs never jump into a legacy Normalnie pair. Missing explicit
+    backs are only allowed when *no* explicit backs were supplied (blank verso).
+    """
+    validate_job_roles(jobs, documents)
+    shared_refs: set[SourcePage] = set()
     for job in jobs:
-        if job.copies < 1:
-            raise ValueError('Nakład musi być >= 1')
-        doc = documents[job.path]
+        for i in range(len(documents[job.path])):
+            if job.role_for(i) == ROLE_SHARED:
+                shared_refs.add(SourcePage(job.path, i))
+    if len(shared_refs) > 1:
+        raise ValueError('Może być tylko jedna strona oznaczona „Tył wspólny”.')
+    shared = next(iter(shared_refs), None)
+
+    pending: list[tuple[SourcePage, SourcePage | None] | SourcePage] = []
+    explicit_fronts: list[SourcePage] = []
+    explicit_backs: list[SourcePage] = []
+    for job in jobs:
         for _ in range(job.copies):
-            for i in range(0, len(doc), 2):
-                yield (SourcePage(job.path, i),
-                       SourcePage(job.path, i+1) if i+1 < len(doc) else None)
+            legacy: list[SourcePage] = []
+            def flush_legacy():
+                for k in range(0, len(legacy), 2):
+                    pending.append((legacy[k], legacy[k+1] if k+1 < len(legacy) else None))
+                legacy.clear()
+            for i in range(len(documents[job.path])):
+                source = SourcePage(job.path, i)
+                role = job.role_for(i)
+                if role == ROLE_AUTO and shared is None:
+                    legacy.append(source)
+                    continue
+                flush_legacy()
+                if role == ROLE_SKIP or role == ROLE_SHARED:
+                    continue
+                if role == ROLE_BACK:
+                    explicit_backs.append(source)
+                elif role in (ROLE_FRONT, ROLE_AUTO):
+                    pending.append(source)  # fill verso only after all files are read
+                    explicit_fronts.append(source)
+            flush_legacy()
+
+    if shared is not None and not explicit_fronts:
+        raise ValueError('Ustawiono wspólny tył, ale nie ma żadnych przodów do wydruku.')
+    if explicit_backs and not explicit_fronts:
+        raise ValueError('Są przypisane tyły, ale brakuje stron oznaczonych jako przody.')
+    if len(explicit_backs) > len(explicit_fronts):
+        raise ValueError(f'Za dużo sparowanych tyłów: {len(explicit_backs)} na {len(explicit_fronts)} przodów.')
+    if 0 < len(explicit_backs) < len(explicit_fronts) and shared is None:
+        raise ValueError(f'Tyłów jest {len(explicit_backs)}, przodów {len(explicit_fronts)}. '
+                         'Dodaj brakujące tyły albo użyj „Tył wspólny”.')
+    number = 0
+    for pair in pending:
+        if isinstance(pair, tuple):
+            yield pair
+        else:
+            back = explicit_backs[number] if number < len(explicit_backs) else shared
+            number += 1
+            yield (pair, back)
 
 
 def _flip_slot(slot: Slot, s: Settings) -> Slot:
@@ -207,9 +294,13 @@ def _booklet_sides(jobs: list[Job], documents: dict[str, fitz.Document], s: Sett
     if len(jobs) != 1:
         raise ValueError('Broszura 2-up: użyj jednego pliku PDF na raz')
     job = jobs[0]
+    validate_job_roles(jobs, documents)
     if job.copies < 1:
         raise ValueError('Nakład musi być >= 1')
-    refs = [SourcePage(job.path, i) for i in range(len(documents[job.path]))]
+    refs = [SourcePage(job.path, i) for i in range(len(documents[job.path]))
+            if job.role_for(i) != ROLE_SKIP]
+    if not refs:
+        raise ValueError('Brak stron broszury po wykluczeniu stron z montażu')
     refs += [None]*((-len(refs)) % 4)
     n = len(refs)
     required_w = 2*(s.trim_w+2*s.bleed) + s.gap_x
@@ -454,7 +545,7 @@ def export_pdf(project: Project, output: str):
         if count == 0:
             raise ValueError('Brak stron do montażu')
         out.set_metadata({'title':'Impozycjoner Studio - montaż PDF',
-                          'creator':'Impozycjoner Studio 0.2.3'})
+                          'creator':'Impozycjoner Studio 0.2.4'})
         Path(output).parent.mkdir(parents=True, exist_ok=True)
         out.save(output, garbage=3, deflate=True)
         return count
@@ -490,7 +581,7 @@ def export_pages(project: Project, output: str) -> int:
         if len(out) == 0:
             raise ValueError('Brak stron do eksportu')
         out.set_metadata({'title':'Impozycjoner Studio - strony w formacie docelowym',
-                          'creator':'Impozycjoner Studio 0.2.3'})
+                          'creator':'Impozycjoner Studio 0.2.4'})
         Path(output).parent.mkdir(parents=True, exist_ok=True)
         out.save(output, garbage=3, deflate=True)
         return len(out)
@@ -535,7 +626,8 @@ def save_project(project: Project, path: str):
             file_path = str(f.relative_to(root))
         except ValueError:
             file_path = str(f)
-        jobs.append({'path':file_path,'copies':j.copies})
+        jobs.append({'path':file_path,'copies':j.copies,
+                     'role':j.role,'page_roles':j.page_roles})
     payload = {'format':'psimp','version':1, 'settings':asdict(project.settings), 'jobs':jobs}
     with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_DEFLATED) as z:
         z.writestr('project.json', json.dumps(payload,ensure_ascii=False,indent=2))
@@ -549,7 +641,8 @@ def load_project(path: str) -> Project:
     base = Path(path).resolve().parent
     settings = Settings(**data['settings'])
     jobs = [Job(path=str((base / j['path']).resolve()) if not Path(j['path']).is_absolute()
-                else str(Path(j['path']).resolve()), copies=int(j['copies']))
+                else str(Path(j['path']).resolve()), copies=int(j['copies']),
+                role=j.get('role', ROLE_AUTO), page_roles=dict(j.get('page_roles', {})))
             for j in data.get('jobs', [])]
     return Project(settings, jobs)
 

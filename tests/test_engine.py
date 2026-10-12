@@ -434,3 +434,171 @@ def test_dpi_calculated_after_downscaling(tmp_path):
     assert any(f.code == 'DPI' for f in src_report.findings)
     assert all(f.code != 'DPI' for f in down_report.findings)
     assert down_report.errors == 0
+
+
+# 0.2.4 — operator-controlled recto/verso mapping regression tests.
+def _collect_duplex_pairs(project):
+    from engine import _duplex_pairs, open_sources
+    docs = open_sources(project.jobs)
+    try:
+        return [(None if f is None else (Path(f.path).name, f.index + 1),
+                 None if b is None else (Path(b.path).name, b.index + 1))
+                for f, b in _duplex_pairs(project.jobs, docs)]
+    finally:
+        for d in docs.values():
+            d.close()
+
+
+def test_024_two_files_front_and_repeated_shared_back(tmp_path):
+    from engine import ROLE_FRONT, ROLE_SHARED
+    a = make_source(tmp_path, 'fronts.pdf', 7)
+    b = make_source(tmp_path, 'backs.pdf', 1)
+    pr = Project(Settings(mode='Dwustronnie', bleed=0),
+                 [Job(a, 1, role=ROLE_FRONT), Job(b, 1, role=ROLE_SHARED)])
+    pairs = _collect_duplex_pairs(pr)
+    assert len(pairs) == 7
+    assert [x[0][1] for x in pairs] == list(range(1,8))
+    assert [x[1] for x in pairs] == [('backs.pdf',1)]*7
+
+
+def test_024_one_page_common_back_rest_auto_fronts(tmp_path):
+    from engine import ROLE_SHARED
+    f = make_source(tmp_path,'mix.pdf',22)
+    pr=Project(Settings(mode='Dwustronnie',bleed=0),
+               [Job(f,page_roles={'13':ROLE_SHARED})])
+    pairs = _collect_duplex_pairs(pr)
+    assert len(pairs)==21
+    assert [p[0][1] for p in pairs]==list(range(1,13))+list(range(14,23))
+    assert all(pair[1] == ('mix.pdf',13) for pair in pairs)
+
+
+def test_024_separate_front_back_files_position_order(tmp_path):
+    from engine import ROLE_FRONT, ROLE_BACK
+    front=make_source(tmp_path,'f.pdf',3)
+    back=make_source(tmp_path,'b.pdf',3)
+    pr=Project(Settings(mode='Dwustronnie',bleed=0),
+               [Job(front,role=ROLE_FRONT),Job(back,role=ROLE_BACK)])
+    assert _collect_duplex_pairs(pr)==[(('f.pdf',i),('b.pdf',i)) for i in range(1,4)]
+
+
+def test_024_auto_duplex_backward_compatible_with_odd_page(tmp_path):
+    path=make_source(tmp_path,'automatic.pdf',5)
+    pr=Project(Settings(mode='Dwustronnie',bleed=0), [Job(path)])
+    assert _collect_duplex_pairs(pr)==[(('automatic.pdf',1),('automatic.pdf',2)),
+                                      (('automatic.pdf',3),('automatic.pdf',4)),
+                                      (('automatic.pdf',5),None)]
+
+
+def test_024_mixed_roles_do_not_cross_legacy_job_boundaries(tmp_path):
+    from engine import ROLE_FRONT, ROLE_BACK
+    normal=make_source(tmp_path,'normal.pdf',3)
+    fronts=make_source(tmp_path,'front.pdf',2)
+    backs=make_source(tmp_path,'back.pdf',2)
+    pr=Project(Settings(mode='Dwustronnie',bleed=0),
+               [Job(normal),Job(fronts,role=ROLE_FRONT),Job(backs,role=ROLE_BACK)])
+    assert _collect_duplex_pairs(pr)==[(('normal.pdf',1),('normal.pdf',2)),
+                                      (('normal.pdf',3),None),
+                                      (('front.pdf',1),('back.pdf',1)),
+                                      (('front.pdf',2),('back.pdf',2))]
+
+
+def test_024_roles_persist_in_project_and_load_old_projects(tmp_path):
+    from engine import ROLE_SHARED, ROLE_FRONT
+    a=make_source(tmp_path,'card.pdf',4)
+    pr=Project(Settings(mode='Dwustronnie'), [Job(a,2,role=ROLE_FRONT,page_roles={'4':ROLE_SHARED})])
+    name=tmp_path/'roles.psimp'
+    save_project(pr,str(name))
+    restored=load_project(str(name))
+    assert restored.jobs[0].role==ROLE_FRONT
+    assert restored.jobs[0].page_roles=={'4':ROLE_SHARED}
+    old=tmp_path/'old.psimp'
+    import json
+    with zipfile.ZipFile(old,'w') as z:
+        z.writestr('project.json',json.dumps({'format':'psimp','version':1,
+            'settings':vars(Settings()),'jobs':[{'path':'card.pdf','copies':1}]}))
+    assert load_project(str(old)).jobs[0].role == 'Normalnie'
+
+
+def test_024_preflight_rejects_unmatched_backs_and_multiple_shared(tmp_path):
+    from engine import ROLE_FRONT, ROLE_BACK, ROLE_SHARED
+    from preflight import inspect_project
+    f=make_source(tmp_path,'fronts.pdf',3)
+    b=make_source(tmp_path,'backs.pdf',1)
+    s=Settings(mode='Dwustronnie',bleed=0)
+    unmatched=inspect_project(Project(s,[Job(f,role=ROLE_FRONT),Job(b,role=ROLE_BACK)]))
+    assert unmatched.errors > 0
+    assert any(x.code=='ROLE' for x in unmatched.findings)
+    dup=inspect_project(Project(s,[Job(f,page_roles={'1':ROLE_SHARED,'2':ROLE_SHARED})]))
+    assert any(x.code=='ROLE' and x.level=='BŁĄD' for x in dup.findings)
+
+
+def test_024_shared_back_produces_matching_vector_verso_pdf(tmp_path):
+    from engine import ROLE_SHARED
+    p=make_source(tmp_path,'cards.pdf',4,w=90,h=50)
+    s=Settings(mode='Dwustronnie',bleed=0,crop_marks=False)
+    project=Project(s,[Job(p,page_roles={'3':ROLE_SHARED})])
+    output=tmp_path/'mapped.pdf'
+    assert export_pdf(project,str(output)) == 2  # 3 fronts / 21-up -> recto + verso
+    with fitz.open(output) as doc:
+        front=doc[0].get_text()
+        back=doc[1].get_text()
+        assert all(f'page-{n}' in front for n in (1,2,4))
+        assert 'page-3' not in front
+        assert back.count('page-3') == 3
+        assert not doc[1].get_images(full=True)
+
+
+def test_024_skip_single_and_overrides(tmp_path):
+    from engine import ROLE_SKIP, ROLE_FRONT
+    f=make_source(tmp_path,'skip.pdf',4)
+    pr=Project(Settings(bleed=0,crop_marks=False),
+               [Job(f,role=ROLE_FRONT,page_roles={'2':ROLE_SKIP})])
+    from engine import export_pages
+    out=tmp_path/'pages.pdf'
+    assert export_pages(pr,str(out))==3
+    with fitz.open(out) as d:
+        assert len(d)==3
+        assert 'page-2' not in ''.join(x.get_text() for x in d)
+
+
+def test_024_invalid_page_role_index_is_rejected(tmp_path):
+    from preflight import inspect_project
+    f=make_source(tmp_path,'short.pdf',1)
+    r=inspect_project(Project(Settings(bleed=0),[Job(f,page_roles={'2':'Przód'})]))
+    assert any(x.code=='ROLE' and x.level=='BŁĄD' for x in r.findings)
+
+
+def test_024_roles_require_duplex_mode_to_prevent_misprint(tmp_path):
+    from engine import ROLE_FRONT
+    from preflight import inspect_project
+    f = make_source(tmp_path, 'front.pdf', 2)
+    p = Project(Settings(mode='Jednostronnie',bleed=0),[Job(f,role=ROLE_FRONT)])
+    result=inspect_project(p)
+    assert result.errors>=1
+    assert any(v.code=='ROLE' for v in result.findings)
+
+
+def test_024_flip_mirrors_verso_slots_by_selected_edge(tmp_path):
+    from engine import ROLE_FRONT, ROLE_SHARED, plan_sides, open_sources
+    a=make_source(tmp_path,'a.pdf',5)
+    b=make_source(tmp_path,'b.pdf',1)
+    for edge in ('Długa krawędź','Krótka krawędź'):
+        s=Settings(mode='Dwustronnie',bleed=0,flip=edge)
+        jobs=[Job(a,role=ROLE_FRONT),Job(b,role=ROLE_SHARED)]
+        docs=open_sources(jobs)
+        try:
+            sides=list(plan_sides(jobs,docs,s))
+            assert len(sides)==2
+            front,back=sides
+            assert len(front.placements)==len(back.placements)==5
+            for f,v in zip(front.placements,back.placements):
+                assert v.source.path==b
+                assert v.source.index==0
+                if edge=='Długa krawędź':
+                    assert abs(f.slot.x-v.slot.x)<.01
+                    assert abs(s.sheet_h-f.slot.y-f.slot.h-v.slot.y)<.01
+                else:
+                    assert abs(f.slot.y-v.slot.y)<.01
+                    assert abs(s.sheet_w-f.slot.x-f.slot.w-v.slot.x)<.01
+        finally:
+            for doc in docs.values():doc.close()

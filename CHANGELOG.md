@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.4 — 2026-10-12
+
+- Added editable recto/verso roles for each input PDF and individual PDF pages (Normal, Front, Paired Back, Shared Back, Exclude).
+- Added multi-select and number/range assignment (e.g. `1,3-8,22`) in a dedicated Windows dialog.
+- Added common-back duplication for personalized fronts, even when a single PDF mixes fronts with one special shared-back page.
+- Added explicit front-to-back pairing across separate input files, preserving front order and the chosen duplex flipping edge.
+- Kept legacy sequential pairing for unchanged projects and stored assignments in backward-compatible `.psimp` project files.
+- Added role validation in preflight so missing or extra backs, multiple different common backs, and non-duplex exports cannot silently misprint.
+- Added a vector PDF demo and tests covering pairing, shared backs, skipping, project persistence and placement.
+
+
 ## 0.2.3 — 2026-10-12
 
 - Detected mixed source page sizes in one PDF and warned about implicit enlargement or reduction to the selected target trim size.

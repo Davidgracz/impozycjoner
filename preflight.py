@@ -11,7 +11,7 @@ import json
 
 import pymupdf as fitz
 
-from engine import Job, Project, Settings, mm, media_rect, open_sources, scaling_layout, validate
+from engine import Job, Project, Settings, mm, media_rect, open_sources, scaling_layout, validate, validate_job_roles, _duplex_pairs, ROLE_AUTO, ROLE_SKIP
 
 
 @dataclass(frozen=True)
@@ -139,6 +139,22 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
     checked = 0
     total = sum(len(doc) for doc in docs.values())
     try:
+        # In duplex, an invalid front/back mapping must block export even when
+        # all source PDFs themselves pass geometry/prepress checks.
+        try:
+            validate_job_roles(project.jobs, docs)
+            if s.mode == 'Dwustronnie':
+                sum(1 for _ in _duplex_pairs(project.jobs, docs))
+            elif s.mode != 'Dwustronnie' and any(
+                j.role not in (ROLE_AUTO, ROLE_SKIP) or any(
+                    role not in (ROLE_AUTO, ROLE_SKIP) for role in j.page_roles.values()
+                ) for j in project.jobs
+            ):
+                findings.append(Finding('BŁĄD', project.jobs[0].path, 0, 'ROLE',
+                    'Przypisano role przód/tył, ale tryb nie jest ustawiony na Dwustronnie. '
+                    'Zmień tryb montażu na Dwustronnie, żeby uniknąć pomyłki przy druku.'))
+        except ValueError as exc:
+            findings.append(Finding('BŁĄD', project.jobs[0].path, 0, 'ROLE', str(exc)))
         for path, doc in docs.items():
             runs: list[FormatRange] = []
             for page_no in range(len(doc)):
