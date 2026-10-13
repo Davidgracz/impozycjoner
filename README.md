@@ -1,3 +1,20 @@
+# Impozycjoner Studio 0.3.7 — arkusz testowy recto/verso i kalkulator kalibracji
+
+**Nowość 0.3.7.** W głównym oknie, w **DUPLEX I ZNACZNIKI → KALIBRACJA RECTO / VERSO**, dostępne są dwa przyciski:
+
+1. **1. Arkusz testowy PDF** — generuje dwustronicowy plik wektorowy w aktualnym formacie papieru, np. SRA3 320 × 450 mm. Na przodzie drukuje pięć krzyży kontrolnych A–E, z podziałką co 1 mm od −5 do +5 mm. Na tyle drukuje odpowiadające im pierścienie; uwzględnia **długą/krótką krawędź** oraz **już ustawione offsety X/Y**, więc można mierzyć ponownie po kalibracji. Arkusz testowy jest oddzielnym plikiem PDF, bez zawartości projektu klientów.
+2. **2. Wpisz pomiar** — przykładając dwustronny wydruk do światła, patrz **od przodu** i zmierz przesunięcie **środka pierścienia TYŁU względem krzyża PRZODU**. Wpisz: w prawo `+X`, w lewo `−X`, w dół `+Y`, w górę `−Y`. Wpisz średni wynik z kilku punktów, w mm i z dokładnością 0,1 mm. Kalkulator automatycznie przeliczy znaki zgodnie z wybraną krawędzią i orientacją arkusza, **doda poprawkę do aktualnych offsetów** i zastosuje nowe wartości w projekcie.
+
+**Instrukcja do wydruku:** ustaw tryb **Dwustronnie**, papier dokładnie taki jak w programie, skalowanie drukarki **100% / rozmiar rzeczywisty** (bez „Dopasuj do strony”, automatycznego obrotu czy skalowania do obszaru zadruku) i taką samą krawędź odwracania w sterowniku i Impozycjonerze. Po naświetleniu/przyłożeniu pod światło porównaj punkty A–E. Jeżeli różnice pomiędzy narożnikami nie są podobne, oznacza to problem z ukosem/niejednorodnym prowadzeniem papieru, którego jeden globalny offset X/Y **nie wyrówna**. Wtedy nie stosuj samej średniej w ciemno; zweryfikuj mechanikę podawania i ustawienia sterownika.
+
+**Przykład obliczenia:** przy arkuszu **320 × 450 mm**, **długiej krawędzi**, widocznym z przodu przesunięciu tyłu `X=+0,7 mm` i `Y=−0,4 mm` oraz początkowych offsetach 0, kalkulator ustawi **offset verso X=+0,7 mm i Y=+0,4 mm**. To wynika z odwrócenia współrzędnej X przy oglądaniu tyłu od przodu. Przy poziomym arkuszu lub krótkiej krawędzi znaki mogą być inne.
+
+**Zapis i bezpieczeństwo:** po zastosowaniu pomiaru zapisz profil przyciskiem **Zapisz**, a projekt przez **Zapisz projekt**. Żadne hasła ani dane produkcyjne nie są zapisywane na arkuszu testowym. Dotychczasowy montaż, spady, ręczny edytor i **generator TAXI pozostają bez zmian**. Test wykonaj na docelowej maszynie; kalkulator nie wykrywa automatycznie przesunięć z kamery ani skanu.
+
+[Przykład arkusza testowego SRA3](examples/duplex_037_320x450.pdf) jest w katalogu `examples/`.
+
+---
+
 # Impozycjoner Studio 0.3.6 — kalibracja recto/verso dla maszyn
 
 **Generator TAXI pozostał bez zmian.** W prawym panelu **DUPLEX I ZNACZNIKI** znajdziesz teraz **KALIBRACJA RECTO / VERSO**.
@@ -51,9 +68,9 @@ Opcje `Dopasuj`, `Wypełnij` i `Bez skalowania` nadal są dostępne. W tych tryb
 
 ---
 
-# Impozycjoner Studio 0.3.6
+# Impozycjoner Studio 0.3.7
 
-Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wzorowanej funkcjonalnie na procesach znanych z programu Impozycjoner 4. Wersja 0.3.6 **nie jest jeszcze pełnym zamiennikiem Impozycjonera 4**. Nie zawiera jego kodu, plików ani znaków handlowych.
+Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wzorowanej funkcjonalnie na procesach znanych z programu Impozycjoner 4. Wersja 0.3.7 **nie jest jeszcze pełnym zamiennikiem Impozycjonera 4**. Nie zawiera jego kodu, plików ani znaków handlowych.
 
 ## Uruchomienie na Windows 10/11
 

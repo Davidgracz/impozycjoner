@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.7 — 2026-10-13
+
+- Added a printable two-page, vector-only duplex alignment sheet at the current physical sheet size.
+- Added five cross/ruler targets on recto and corresponding ring targets on verso; follow flip direction and active machine offsets.
+- Added a measurement calculator for front-face displacement with correct axis signs for landscape/portrait and long/short edge flipping.
+- Applied measurement corrections incrementally to the current verso offset; operator can save the result as a printer profile.
+- Added geometry, sign, vector PDF and profile regression tests; preserved all current imposition and TAXI functions.
+
+
 ## 0.3.6 — 2026-10-13
 
 - Added 0.1-mm whole-side verso X/Y calibration after all per-slot manual edits and physical flip.

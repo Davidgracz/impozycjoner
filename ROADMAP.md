@@ -57,3 +57,5 @@ Odniesienie: https://www.impozycjoner.pl/dokumentacja/v4
 - [x] 0.3.5: native drag/drop, single-slot rotation, independent manual nudge on recto/verso.
 - [x] 0.3.6: machine-specific whole-side verso registration offsets X/Y (0.1 mm), local printer profiles and preflight/export validation.
 - [ ] Next: sheet-registration measurement chart and tighter preview of overprint/crosshair differences.
+
+- [x] 0.3.7: Print-and-measure duplex registration sheet and guided front-view correction calculator.

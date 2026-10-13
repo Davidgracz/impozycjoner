@@ -12,6 +12,7 @@ from preflight import inspect_project
 from taxi_ui import TaxiGeneratorFrame
 from preview_labels import overlay_preview, OVERLAY_OPTIONS
 from duplex_calibration import list_profiles, read_profile, store_profile, remove_profile
+from duplex_test_sheet import create_duplex_test_pdf, correction_from_front_error
 
 BG = '#141923'
 PANEL = '#1d2531'
@@ -47,7 +48,7 @@ PRESETS = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title('Impozycjoner Studio 0.3.6')
+        self.title('Impozycjoner Studio 0.3.7')
         self.geometry('1500x850')
         self.minsize(1000, 700)
         self.configure(background=BG)
@@ -116,7 +117,7 @@ class App(tk.Tk):
         top = ttk.Frame(self.imposition_tab, padding=(14, 11))
         top.pack(fill='x')
         ttk.Label(top, text='IMPOZYCJONER', font=('Segoe UI', 19, 'bold'), foreground=ACCENT).pack(side='left', padx=(0, 4))
-        ttk.Label(top, text='STUDIO 0.3.6', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
+        ttk.Label(top, text='STUDIO 0.3.7', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
         self._button(top, 'Otwórz projekt', self.load_project).pack(side='left', padx=3)
         self._button(top, 'Zapisz projekt', self.save_project).pack(side='left', padx=3)
         self._button(top, 'Eksportuj PDF', self.export, True).pack(side='right', padx=5)
@@ -274,6 +275,14 @@ class App(tk.Tk):
         self._button(profile_buttons,'Wczytaj',self.apply_duplex_profile).pack(side='left',expand=True,fill='x')
         self._button(profile_buttons,'Zapisz',self.save_duplex_profile).pack(side='left',expand=True,fill='x',padx=3)
         self._button(profile_buttons,'Usuń',self.delete_duplex_profile).pack(side='left',expand=True,fill='x')
+        calibration_actions=ttk.Frame(form,style='Panel.TFrame')
+        calibration_actions.pack(fill='x',pady=(5,4))
+        self._button(calibration_actions,'1. Arkusz testowy PDF',self.export_duplex_test_sheet).pack(
+            side='left',expand=True,fill='x',padx=(0,3))
+        self._button(calibration_actions,'2. Wpisz pomiar',self.open_duplex_measurement).pack(
+            side='left',expand=True,fill='x')
+        ttk.Label(form,text='Wydrukuj dwustronnie w skali 100%, przyłóż do światła i zmierz położenie znaczników tyłu względem krzyży przodu.',
+            style='Muted.TLabel',wraplength=255,justify='left').pack(anchor='w',pady=(0,9))
         self.marks_var=tk.BooleanVar(value=True)
         self.labels_var=tk.BooleanVar(value=False)
         for text, var in [('Znaczniki cięcia',self.marks_var),('Numery stron (oznaczenia pomocnicze)',self.labels_var)]:
@@ -332,6 +341,108 @@ class App(tk.Tk):
             self._reload_profile_choices()
         except (OSError, ValueError) as exc:
             messagebox.showerror('Kalibracja', str(exc), parent=self)
+
+    def export_duplex_test_sheet(self):
+        """Two-page vector PDF using the current sheet format/flip/offset."""
+        try:
+            settings = self._read_fields()
+            if settings.mode != 'Dwustronnie':
+                raise ValueError('Wybierz tryb Dwustronnie przed generowaniem arkusza testowego.')
+        except (ValueError, KeyError) as exc:
+            messagebox.showerror('Arkusz kalibracyjny',str(exc),parent=self)
+            return
+        path = filedialog.asksaveasfilename(parent=self,
+            title='Zapisz dwustronny arkusz do kalibracji',
+            defaultextension='.pdf',filetypes=[('Dokument PDF','*.pdf')],
+            initialfile='KALIBRACJA_RECTO_VERSO.pdf')
+        if not path:return
+        try:
+            create_duplex_test_pdf(path,sheet_w=settings.sheet_w,sheet_h=settings.sheet_h,
+                flip=settings.flip,verso_shift_x=settings.verso_shift_x,
+                verso_shift_y=settings.verso_shift_y)
+            messagebox.showinfo('Arkusz kalibracyjny',
+                'Zapisano PDF z dwiema stronami.\n\n'
+                '1. Drukuj dwustronnie, 100% skali, bez dopasowania do strony.\n'
+                '2. W drukarce wybierz tę samą krawędź odwracania co w programie.\n'
+                '3. Przyłóż wydruk do światła i oglądaj od PRZODU.\n'
+                '4. Zmierz, o ile pierścienie z tyłu są przesunięte względem krzyży z przodu.\n'
+                '5. Wpisz różnicę do kalkulatora pomiaru.\n\n'
+                'Uwaga: do poprawnej kalibracji drukarka nie może skalować PDF-a.',
+                parent=self)
+        except (OSError, ValueError) as exc:
+            messagebox.showerror('Arkusz kalibracyjny',str(exc),parent=self)
+
+    def open_duplex_measurement(self):
+        """Convert measured front-view back misregistration into backside offsets."""
+        try:
+            s=self._read_fields()
+            if s.mode!='Dwustronnie':
+                raise ValueError('Wybierz tryb Dwustronnie przed kalibracją.')
+        except (ValueError, KeyError) as exc:
+            messagebox.showerror('Kalkulator kalibracji',str(exc),parent=self)
+            return
+        dlg=tk.Toplevel(self)
+        dlg.title('Kalkulator kalibracji recto / verso')
+        dlg.transient(self)
+        dlg.resizable(False,False)
+        body=ttk.Frame(dlg,padding=22)
+        body.pack(fill='both',expand=True)
+        ttk.Label(body,text='Pomiar z arkusza testowego',font=('Segoe UI',14,'bold')).pack(anchor='w',pady=(0,9))
+        ttk.Label(body,text='Oglądaj kartkę OD PRZODU, pod światło.\n'
+            'Zmierz, gdzie znajduje się środek pierścienia TYŁU względem krzyża PRZODU.\n'
+            'W prawo = dodatni X, w dół = dodatni Y.\n'
+            'Podaj średnią z kilku znaczników. Wartości z dokładnością 0,1 mm.',
+            wraplength=450,justify='left').pack(anchor='w',pady=(0,11))
+        mx=tk.StringVar(value='0,0')
+        my=tk.StringVar(value='0,0')
+        for title,var in [('Błąd tyłu w osi X (mm)',mx),('Błąd tyłu w osi Y (mm)',my)]:
+            row=ttk.Frame(body)
+            row.pack(fill='x',pady=3)
+            ttk.Label(row,text=title).pack(side='left')
+            entry=ttk.Entry(row,textvariable=var,width=12)
+            entry.pack(side='right',padx=(12,0))
+        note=tk.StringVar()
+        ttk.Label(body,textvariable=note,wraplength=450,justify='left',
+                  font=('Segoe UI',10,'bold')).pack(anchor='w',pady=(12,7))
+        ttk.Label(body,text=f'Obecna korekta: X={s.verso_shift_x:+.1f} mm, Y={s.verso_shift_y:+.1f} mm.\n'
+              f'Krawędź: {s.flip}; arkusz {s.sheet_w:g} × {s.sheet_h:g} mm.',
+              wraplength=450,justify='left').pack(anchor='w',pady=(0,12))
+        result=[None]
+        def recompute(*_):
+            try:
+                x=float(mx.get().replace(',','.'))
+                y=float(my.get().replace(',','.'))
+                result[0]=correction_from_front_error(x,y,flip=s.flip,
+                   sheet_w=s.sheet_w,sheet_h=s.sheet_h,
+                   current_x=s.verso_shift_x,current_y=s.verso_shift_y)
+                note.set(f'Nowy offset verso: X={result[0][0]:+.1f} mm, Y={result[0][1]:+.1f} mm')
+                apply_btn.configure(state='normal')
+            except ValueError as exc:
+                result[0]=None
+                note.set('Sprawdź pomiar: '+str(exc))
+                apply_btn.configure(state='disabled')
+        def apply():
+            if result[0] is None:return
+            self.variables['verso_shift_x'].set(f'{result[0][0]:.1f}')
+            self.variables['verso_shift_y'].set(f'{result[0][1]:.1f}')
+            self.schedule_refresh()
+            dlg.destroy()
+            messagebox.showinfo('Kalibracja',
+                'Nowa korekta została zastosowana do projektu.\n'
+                'Zrób kolejny arkusz testowy, aby zweryfikować spasowanie.\n'
+                'Jeśli jest poprawne, zapisz profil maszyny przyciskiem Zapisz.',
+                parent=self)
+        actions=ttk.Frame(body)
+        actions.pack(fill='x',pady=(5,0))
+        apply_btn=ttk.Button(actions,text='Zastosuj korektę',command=apply)
+        apply_btn.pack(side='right')
+        ttk.Button(actions,text='Anuluj',command=dlg.destroy).pack(side='right',padx=(0,8))
+        mx.trace_add('write',recompute)
+        my.trace_add('write',recompute)
+        recompute()
+        dlg.wait_visibility()
+        dlg.grab_set()
+        dlg.focus_set()
 
     def _separator(self,frm):
         ttk.Separator(frm,orient='horizontal').pack(fill='x',pady=(10,3))
