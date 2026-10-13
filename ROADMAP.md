@@ -22,10 +22,10 @@ Odniesienie: https://www.impozycjoner.pl/dokumentacja/v4
 ## 0.3 — Zaawansowane akcydensy
 - [ ] Gang-run (różne formaty i nakłady na jednym arkuszu)
 - [ ] Optymalizacja wielowariantowa: odpady/nakłady/koszt rozcięcia
-- [ ] Ręczne przesuwanie/obracanie/użytkowanie na podglądzie
+- [x] Ręczne przesuwanie/obracanie/użytkowanie na podglądzie (0.3.5: drag/drop, pola puste, obrót ±90°, przesuw 0,1 mm)
 - [ ] Kreator podziału arkusza, szablony prac
 - [x] Przypisywanie ról całemu PDF lub dowolnym stronom: przód, tył sparowany, tył wspólny, pomiń
-- [ ] Montaż wieloarkuszowy i pełny edytor pojedynczych użytków recto/verso (również osobne obroty, niezależne wyrównanie)
+- [x] Montaż wieloarkuszowy i edytor pojedynczych użytków recto/verso (0.3.5: osobne obroty/pozycje, zapis i eksport)
 
 ## 0.4 — Montaż książek i falcowanie
 - [ ] Oprawa klejona, zeszytowa, szyta; składki 4/8/12/16/32
@@ -53,4 +53,5 @@ Odniesienie: https://www.impozycjoner.pl/dokumentacja/v4
 - [ ] Confirm import and cutting fidelity in actual CorelDRAW X4 and the shop plotter.
 
 - [x] 0.3.1 first phase: manual cell selection, recto/verso editing, registration overlay.
-- [ ] Next: native drag/drop, single-slot rotation, manual nudge and per-side registration offsets.
+- [x] 0.3.5: native drag/drop, single-slot rotation, independent manual nudge on recto/verso.
+- [ ] Next: machine-specific whole-side recto/verso registration offsets.

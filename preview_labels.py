@@ -23,7 +23,7 @@ def page_identifier(source, mode):
     return number
 
 
-def overlay_preview(image, side, settings, mode='Numer strony'):
+def overlay_preview(image, side, settings, mode='Numer strony', *, show_empty=True):
     """Draw labels only into raster preview after PDF rendering; preserve source image."""
     if mode == 'Brak' or side is None:
         return image
@@ -35,6 +35,8 @@ def overlay_preview(image, side, settings, mode='Numer strony'):
     sx = canvas.width / settings.sheet_w
     sy = canvas.height / settings.sheet_h
     for placement in side.placements:
+        if placement.source is None and not show_empty:
+            continue
         slot = placement.slot
         x0, y0 = slot.x*sx, slot.y*sy
         w, h = slot.w*sx, slot.h*sy

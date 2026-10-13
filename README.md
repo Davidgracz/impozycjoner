@@ -1,4 +1,21 @@
-# Nowość 0.3.4 — trzy wymiary w montażu (oryginał / brutto / netto)
+# Nowość 0.3.5 — interaktywny montaż PDF i niezależne recto/verso
+
+**Generator TAXI bez zmian.** Kliknij **Edytuj użytki (przeciągnij)** nad podglądem arkusza:
+
+1. Wybierz stronę w lewej kolumnie listy plików (w oknie edytora znajduje się po prawej stronie), przeciągnij na wybrany użytek. Możesz używać również pustych pól siatki.
+2. Przeciągnij istniejący użytek na inny, aby **zamienić zawartość**. Przeciągnij go w wolną przestrzeń lub trzymaj **Shift** podczas przeciągania, aby **przesunąć** zawartość wraz z liniami cięcia.
+3. Zaznacz użytek. Wpisz X / Y w milimetrach lub przesuń go strzałkami **co 0,1 mm**. Wciśnij `R` / przycisk ±90°, aby zmienić jego obrót. Obrót zachowuje rozmiar grafiki; przy 90° zmienia się fizyczna orientacja prostokątnego pola.
+4. Przejdź do drugiej strony przyciskami **◀ / ▶** w edytorze: przód i tył mają **niezależne** przesunięcia, obroty i przypisane PDF-y.
+5. **Wyczyść** usuwa zawartość (przy zachowaniu pozycji), a **Przywróć automat** usuwa wszystkie ręczne zmiany danego pola.
+6. Zapisz `.psimp` w oknie głównym. Ta sama geometria jest używana do podglądu i wektorowego eksportu PDF.
+
+**Bezpieczeństwo produkcyjne:** edytor nie pozwala wysunąć użytku wraz ze spadami poza arkusz. Wykryte nakładanie się **zajętych** użytków jest oznaczone czerwonym obrysem i ostrzeżeniem preflight. Zamierzone zakładki można jednak pozostawić — przed drukiem sprawdź PDF kontrolny. Numery stron wyświetlane na półprzezroczystych nakładkach **nie wchodzą do PDF-a produkcyjnego**.
+
+Ręczne modyfikacje są przypisane do **arkusza, strony recto/verso i pola siatki**. Jeżeli później zmienisz liczbę użytków w siatce, kolejność PDF-ów lub nakład, sprawdź ponownie wszystkie ręczne pola: mogą odnosić się do innych pozycji albo wymagać ponownego montażu.
+
+---
+
+# Nowość 0.3.5 — trzy wymiary w montażu (oryginał / brutto / netto)
 
 W prawym panelu **KADROWANIE / WYMIARY** są trzy niezależne etapy w takiej kolejności:
 
@@ -16,7 +33,7 @@ Opcje `Dopasuj`, `Wypełnij` i `Bez skalowania` nadal są dostępne. W tych tryb
 
 ---
 
-# Impozycjoner Studio 0.3.4
+# Impozycjoner Studio 0.3.5
 
 Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wzorowanej funkcjonalnie na procesach znanych z programu Impozycjoner 4. Wersja 0.3.1 **nie jest jeszcze pełnym zamiennikiem Impozycjonera 4**. Nie zawiera jego kodu, plików ani znaków handlowych.
 

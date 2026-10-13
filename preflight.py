@@ -11,7 +11,7 @@ import json
 
 import pymupdf as fitz
 
-from engine import Job, Project, Settings, mm, media_rect, open_sources, scaling_layout, validate, bleed_for, gross_dimensions, validate_job_roles, _duplex_pairs, ROLE_AUTO, ROLE_SKIP
+from engine import Job, Project, Settings, mm, media_rect, open_sources, scaling_layout, validate, bleed_for, gross_dimensions, validate_job_roles, _duplex_pairs, project_sides, overlapping_uses, ROLE_AUTO, ROLE_SKIP
 
 
 @dataclass(frozen=True)
@@ -286,6 +286,33 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
                     f'PDF zawiera różne formaty: {sample}. '
                     f'Docelowy format: {s.trim_w:g} × {s.trim_h:g} mm. '
                     'Sprawdź, czy zamierzone jest pomniejszanie/powiększanie stron.'))
+        # Additional sheet-geometry inspection is required only for manually
+        # transformed layouts; operators may intentionally overlap artwork,
+        # therefore this is an explicit WARNING, not a fatal geometry error.
+        if project.overrides:
+            affected = set()
+            for key in project.overrides:
+                try:
+                    number, side, index = map(int, key.split(':'))
+                    affected.add((number, side))
+                except (ValueError, TypeError):
+                    findings.append(Finding('BŁĄD', '', 0, 'RECZNY_KLUCZ',
+                                            f'Nieprawidłowy ręczny użytek: {key!r}'))
+            if affected:
+                pending = set(affected)
+                try:
+                    for side in project_sides(project, docs):
+                        ident = (side.sheet_number, side.side)
+                        if ident in pending:
+                            pending.remove(ident)
+                            for a, b in overlapping_uses(side, s):
+                                findings.append(Finding('UWAGA', '', 0, 'NAKLADANIE_UZYTKOW',
+                                    f'Arkusz {side.sheet_number}, {"recto" if side.side == 0 else "verso"}: '
+                                    f'użytki {a+1} i {b+1} nachodzą na siebie wraz ze spadami.'))
+                        if not pending:
+                            break
+                except ValueError as exc:
+                    findings.append(Finding('BŁĄD', '', 0, 'RECZNY_MONTAZ', str(exc)))
         return PreflightReport(checked, total, findings, image_issues, format_ranges, min_dpi)
     finally:
         for doc in docs.values():

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.5 — 2026-10-13
+
+- Added a real visual drag/drop sheet editor for source PDF pages, including empty grid positions.
+- Added move-by-drag, arrow-key 0.1-mm nudging, exact X/Y inputs and independent 90-degree per-use rotation.
+- Added drag-to-swap, reset-to-auto and clear operations, preserving independent recto and verso edits.
+- Persisted artwork assignments, displacement and rotation in backward-compatible `.psimp` files.
+- Unified edited geometry for preview and vector PDF output; visual page overlays remain preview-only.
+- Added physical sheet-boundary checks and overlap warnings in editor and preflight.
+- Kept the TAXI generator and all its template assets unchanged.
+- Added regression tests for vector output, backward compatibility, save/load, duplex and 110x70 crop.
+
+
 ## 0.3.4 — 2026-10-13
 
 - Added three explicit operator dimensions: original PDF, gross/with-bleed use, and final net trim.

@@ -46,7 +46,7 @@ PRESETS = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title('Impozycjoner Studio 0.3.4')
+        self.title('Impozycjoner Studio 0.3.5')
         self.geometry('1500x850')
         self.minsize(1000, 700)
         self.configure(background=BG)
@@ -115,7 +115,7 @@ class App(tk.Tk):
         top = ttk.Frame(self.imposition_tab, padding=(14, 11))
         top.pack(fill='x')
         ttk.Label(top, text='IMPOZYCJONER', font=('Segoe UI', 19, 'bold'), foreground=ACCENT).pack(side='left', padx=(0, 4))
-        ttk.Label(top, text='STUDIO 0.3.4', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
+        ttk.Label(top, text='STUDIO 0.3.5', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
         self._button(top, 'Otwórz projekt', self.load_project).pack(side='left', padx=3)
         self._button(top, 'Zapisz projekt', self.save_project).pack(side='left', padx=3)
         self._button(top, 'Eksportuj PDF', self.export, True).pack(side='right', padx=5)
@@ -181,7 +181,7 @@ class App(tk.Tk):
         toolbar=ttk.Frame(central,padding=(4,6))
         toolbar.grid(row=0,column=0,sticky='ew')
         ttk.Label(toolbar,text='PODGLĄD ARKUSZA', font=('Segoe UI', 11, 'bold')).pack(side='left')
-        self._button(toolbar,'Edytuj użytki',self.edit_sheet).pack(side='left',padx=5)
+        self._button(toolbar,'Edytuj użytki (przeciągnij)',self.edit_sheet).pack(side='left',padx=5)
         self._button(toolbar,'Rejestracja ON/OFF',self.toggle_overlay).pack(side='left',padx=4)
         ttk.Label(toolbar, text='Nakładki:').pack(side='left',padx=(10,3))
         self.preview_label_choice=ttk.Combobox(toolbar, textvariable=self.preview_label_mode,
@@ -687,81 +687,17 @@ class App(tk.Tk):
         self.refresh()
 
     def edit_sheet(self):
-        """Manual editor for the currently displayed side. Assign, clear and swap slots."""
+        """Open visual drag/drop sheet editor, with per-use rigid transforms."""
         if not self.project.jobs:
             messagebox.showwarning('Brak plików', 'Dodaj pliki PDF przed edycją arkusza.')
             return
         try:
             self.project.settings = self._read_fields()
-            sources = open_sources(self.project.jobs)
-            try:
-                side = next((x for i,x in enumerate(project_sides(self.project, sources)) if i == self.side_index), None)
-                file_data = [(j.path, len(sources[j.path])) for j in self.project.jobs]
-            finally:
-                for d in sources.values(): d.close()
-            if side is None:
-                raise ValueError('Nie ma arkusza do edycji.')
+            from sheet_editor import SheetEditor
+            window = SheetEditor(self)
+            self.sheet_editor_window = window
         except Exception as exc:
-            messagebox.showerror('Edytor arkusza', str(exc))
-            return
-        win = tk.Toplevel(self)
-        win.title(f'Edytor użytków — arkusz {side.sheet_number} — {"Recto" if side.side == 0 else "Verso"}')
-        win.geometry('840x570'); win.transient(self)
-        ttk.Label(win, text='Zaznacz pole arkusza, wybierz plik i stronę PDF, a następnie przypisz.',
-                  font=('Segoe UI', 11, 'bold')).pack(anchor='w', padx=12, pady=10)
-        area = ttk.Frame(win); area.pack(fill='both',expand=True,padx=12)
-        tree = ttk.Treeview(area, columns=('file','page'),show='tree headings',selectmode='browse')
-        tree.heading('#0',text='Użytek'); tree.heading('file',text='Źródłowy PDF');tree.heading('page',text='Strona')
-        tree.column('#0',width=105,stretch=False);tree.column('file',width=400);tree.column('page',width=65,stretch=False)
-        tree.pack(side='left',fill='both',expand=True)
-        ttk.Scrollbar(area,orient='vertical',command=tree.yview).pack(side='right',fill='y')
-        def get_side():
-            docs=open_sources(self.project.jobs)
-            try: return next((x for i,x in enumerate(project_sides(self.project,docs)) if i==self.side_index),None)
-            finally:
-                for d in docs.values():d.close()
-        def reload(selected=0):
-            tree.delete(*tree.get_children())
-            current=get_side()
-            for i,item in enumerate(current.placements):
-                src=item.source
-                tree.insert('', 'end', iid=str(i),text=f'{i+1} ({item.slot.col+1},{item.slot.row+1})',
-                            values=(Path(src.path).name if src else '[PUSTO]',src.index+1 if src else '—'))
-            if tree.exists(str(selected)): tree.selection_set(str(selected))
-            self.refresh()
-        def slot_number():
-            sel=tree.selection()
-            if not sel: raise ValueError('Wybierz użytek z listy.')
-            return int(sel[0])
-        controls=ttk.Frame(win,padding=12); controls.pack(fill='x')
-        pick=ttk.Frame(controls);pick.pack(fill='x',pady=5)
-        ttk.Label(pick,text='Plik PDF:').pack(side='left')
-        filenames=[Path(x[0]).name for x in file_data]
-        file_var=tk.StringVar(value=filenames[0]); page_var=tk.StringVar(value='1')
-        ttk.Combobox(pick,textvariable=file_var,values=filenames,state='readonly',width=50).pack(side='left',padx=7)
-        ttk.Label(pick,text='Strona:').pack(side='left',padx=4)
-        ttk.Entry(pick,textvariable=page_var,width=7).pack(side='left')
-        swap_var=tk.StringVar(value='1')
-        actions=ttk.Frame(controls);actions.pack(fill='x',pady=6)
-        def operation(kind):
-            try:
-                current=get_side(); slot=slot_number()
-                if kind=='assign':
-                    ix=filenames.index(file_var.get()); path,n=file_data[ix]; number=int(page_var.get())
-                    if not 1<=number<=n: raise ValueError('Numer strony poza zakresem PDF.')
-                    assign_slot(self.project,current,slot,SourcePage(path,number-1))
-                elif kind=='clear':assign_slot(self.project,current,slot,None)
-                elif kind=='swap':swap_slots(self.project,current,slot,int(swap_var.get())-1)
-                else:self.project.overrides.pop(f'{current.sheet_number}:{current.side}:{slot}',None)
-                reload(slot)
-            except Exception as exc: messagebox.showerror('Edycja użytku',str(exc),parent=win)
-        for label,kind in [('Przypisz stronę','assign'),('Puste pole','clear'),('Przywróć auto','reset')]:
-            ttk.Button(actions,text=label,command=lambda k=kind:operation(k)).pack(side='left',padx=3)
-        ttk.Label(actions,text='Zamień z polem nr:').pack(side='left',padx=(18,3))
-        ttk.Entry(actions,textvariable=swap_var,width=5).pack(side='left')
-        ttk.Button(actions,text='Zamień',command=lambda:operation('swap')).pack(side='left',padx=4)
-        ttk.Button(controls,text='Zamknij (zapisz projekt, aby zachować zmiany)',command=win.destroy).pack(anchor='e',pady=4)
-        reload()
+            messagebox.showerror('Edytor arkusza', str(exc), parent=self)
 
     def change_side(self,delta):
         next_idx=max(0,self.side_index+delta)

@@ -1,4 +1,4 @@
-"""Impozycjoner Studio 0.2.5 - original PDF imposition engine.
+"""Impozycjoner Studio 0.3.5 - vector PDF imposition engine.
 
 Uses PDF form XObjects via PyMuPDF. No source pages are rasterized during export.
 Units exposed to the operator are millimetres; PyMuPDF operates in points.
@@ -384,8 +384,67 @@ def _manual_key(side: SheetSide, index: int) -> str:
     return f'{side.sheet_number}:{side.side}:{index}'
 
 
-def apply_overrides(side: SheetSide, project: Project, sources: dict[str, fitz.Document]) -> SheetSide:
-    """Apply saved manual assignments to the exact same plan for preview and export."""
+def _slot_from_edit(base: Slot, entry: dict, settings: Settings) -> Slot:
+    """Apply a rigid 0.1-mm transform to a single use, retaining its centre on rotation.
+
+    Rotation is relative to automatic layout; 90/270 swap its net width/height.
+    Only coordinates change: PDF source vectors and print size are preserved.
+    """
+    angle = entry.get('rotate', 0)
+    dx = entry.get('dx', 0.0)
+    dy = entry.get('dy', 0.0)
+    if type(angle) is not int or angle not in (0, 90, 180, 270):
+        raise ValueError('Ręczny obrót musi wynosić 0, 90, 180 lub 270°.')
+    for name, value in (('X', dx), ('Y', dy)):
+        if type(value) not in (int, float) or not isfinite(value):
+            raise ValueError(f'Niepoprawne przesunięcie {name} użytku.')
+        if abs(value * 10 - round(value * 10)) > 1e-6:
+            raise ValueError(f'Przesunięcie {name} musi być wielokrotnością 0,1 mm.')
+    w, h = (base.h, base.w) if angle in (90, 270) else (base.w, base.h)
+    x = base.x + (base.w - w) / 2 + dx
+    y = base.y + (base.h - h) / 2 + dy
+    bleed = bleed_for(settings)
+    if x < bleed - 1e-5 or y < bleed - 1e-5 or (x+w+bleed > settings.sheet_w+1e-5
+            or y+h+bleed > settings.sheet_h+1e-5):
+        raise ValueError('Użytek ze spadami wychodzi poza arkusz. Zmniejsz przesunięcie lub obrót.')
+    return Slot(x, y, w, h, (base.rotation + angle) % 360, base.col, base.row)
+
+
+def _complete_side(side: SheetSide, s: Settings, needed: int) -> SheetSide:
+    """Add addressable empty slots to a partially filled sheet, without new pages."""
+    if s.mode == 'Broszura':
+        if needed > 2:
+            raise ValueError('Broszura pozwala na dwa użytki w jednym arkuszu.')
+        return side  # booklet already includes two cells (also when blank)
+    g = geometry(s)
+    if needed > g.capacity:
+        raise ValueError(f'Pole ręcznego montażu {needed} wykracza poza siatkę {g.capacity}.')
+    items = list(side.placements)
+    for i in range(len(items), needed):
+        slot = g.slots[i]
+        if side.side == 1 and s.mode == 'Dwustronnie':
+            slot = _flip_slot(slot, s)
+        items.append(Placement(None, slot, side.side))
+    return SheetSide(side.sheet_number, side.side, tuple(items))
+
+
+def apply_overrides(side: SheetSide, project: Project, sources: dict[str, fitz.Document],
+                    *, full_grid: bool = False) -> SheetSide:
+    """Apply identical layout edits to preview and export, even in initially empty cells."""
+    prefix = f'{side.sheet_number}:{side.side}:'
+    used_indices = []
+    for key in project.overrides:
+        if key.startswith(prefix):
+            try:
+                i = int(key[len(prefix):])
+            except ValueError:
+                raise ValueError(f'Niepoprawny klucz ręcznej pozycji: {key}') from None
+            if i < 0:
+                raise ValueError(f'Niepoprawny klucz ręcznej pozycji: {key}')
+            used_indices.append(i)
+    capacity = 2 if project.settings.mode == 'Broszura' else geometry(project.settings).capacity
+    wanted = capacity if full_grid else max(len(side.placements), max(used_indices, default=-1)+1)
+    side = _complete_side(side, project.settings, wanted)
     if not project.overrides:
         return side
     items = list(side.placements)
@@ -393,14 +452,19 @@ def apply_overrides(side: SheetSide, project: Project, sources: dict[str, fitz.D
         entry = project.overrides.get(_manual_key(side, i))
         if entry is None:
             continue
-        ref = None
-        if not entry.get('blank', False):
+        if not isinstance(entry, dict):
+            raise ValueError('Niepoprawne ręczne ustawienia użytku.')
+        ref = placement.source
+        if entry.get('blank', False):
+            ref = None
+        elif 'path' in entry or 'page' in entry:
             path = entry.get('path')
             page = entry.get('page')
-            if path not in sources or not isinstance(page, int) or not (0 <= page < len(sources[path])):
+            if path not in sources or type(page) is not int or not (0 <= page < len(sources[path])):
                 raise ValueError(f'Ręcznie wybrana strona nie istnieje: {path}, {page}')
             ref = SourcePage(path, page)
-        items[i] = Placement(ref, placement.slot, placement.side)
+        slot = _slot_from_edit(placement.slot, entry, project.settings)
+        items[i] = Placement(ref, slot, placement.side)
     return SheetSide(side.sheet_number, side.side, tuple(items))
 
 
@@ -409,21 +473,97 @@ def project_sides(project: Project, sources: dict[str, fitz.Document]):
         yield apply_overrides(side, project, sources)
 
 
-def assign_slot(project: Project, side: SheetSide, index: int, source: SourcePage | None):
-    """Assign one cell independently of the other sheet side."""
+def _edit_entry(project: Project, side: SheetSide, index: int) -> dict:
     if not 0 <= index < len(side.placements):
         raise IndexError('Nieprawidłowy numer użytku')
-    key = _manual_key(side, index)
-    project.overrides[key] = ({'blank': True} if source is None else
-                              {'path': source.path, 'page': source.index})
+    return project.overrides.setdefault(_manual_key(side, index), {})
+
+
+def assign_slot(project: Project, side: SheetSide, index: int, source: SourcePage | None):
+    """Replace only the artwork; preserve per-cell rotation and movement."""
+    entry = _edit_entry(project, side, index)
+    entry.pop('path', None)
+    entry.pop('page', None)
+    entry.pop('blank', None)
+    if source is None:
+        entry['blank'] = True
+    else:
+        entry.update(path=source.path, page=source.index)
 
 
 def swap_slots(project: Project, side: SheetSide, a: int, b: int):
-    """Swap two visible cells while preserving all previous manual assignments."""
+    """Swap contents between two cells, keeping each cell's own transforms."""
     if not 0 <= a < len(side.placements) or not 0 <= b < len(side.placements):
         raise IndexError('Nieprawidłowy numer użytku')
+    if a == b:
+        return
     assign_slot(project, side, a, side.placements[b].source)
     assign_slot(project, side, b, side.placements[a].source)
+
+
+def set_slot_transform(project: Project, side: SheetSide, index: int, *,
+                       dx: float | None = None, dy: float | None = None,
+                       rotate: int | None = None):
+    """Set absolute displacement (0.1 mm grid) and relative right-angle rotation.
+
+    Values replace existing transforms rather than accumulate; this prevents
+    pointer-drag rounding drift. The active, unedited slot is not the transform
+    origin: the original regular-grid slot is always the origin.
+    """
+    entry = _edit_entry(project, side, index)
+    updated = dict(entry)
+    if dx is not None:
+        updated['dx'] = float(dx)
+    if dy is not None:
+        updated['dy'] = float(dy)
+    if rotate is not None:
+        updated['rotate'] = rotate
+    # Validate the exact transform against the original regular grid.
+    sources = None
+    base = None
+    if project.settings.mode == 'Broszura':
+        # Booklet base uses the same relative rotation, but different base slots.
+        # Recover the original from a per-cell editor's already-adjusted slot.
+        base = _undo_slot_edit(side.placements[index].slot, entry)
+    else:
+        normal = geometry(project.settings).slots[index]
+        if side.side == 1 and project.settings.mode == 'Dwustronnie':
+            normal = _flip_slot(normal, project.settings)
+        base = normal
+    _slot_from_edit(base, updated, project.settings)
+    project.overrides[_manual_key(side, index)] = updated
+
+
+def _undo_slot_edit(slot: Slot, entry: dict) -> Slot:
+    """Recover booklet's unmodified cell from its currently edited geometry."""
+    rotate = entry.get('rotate', 0)
+    w, h = (slot.h, slot.w) if rotate in (90, 270) else (slot.w, slot.h)
+    x = slot.x - (w-slot.w)/2 - entry.get('dx', 0)
+    y = slot.y - (h-slot.h)/2 - entry.get('dy', 0)
+    return Slot(x, y, w, h, (slot.rotation-rotate) % 360, slot.col, slot.row)
+
+
+def reset_slot(project: Project, side: SheetSide, index: int):
+    """Restore fully automatic contents AND unmodified geometry for one cell."""
+    if not 0 <= index < len(side.placements):
+        raise IndexError('Nieprawidłowy numer użytku')
+    project.overrides.pop(_manual_key(side, index), None)
+
+
+def overlapping_uses(side: SheetSide, s: Settings) -> list[tuple[int, int]]:
+    """Detect collisions of PRINTED gross rectangles (net use plus bleed)."""
+    b = bleed_for(s)
+    result = []
+    for i, a in enumerate(side.placements):
+        if a.source is None: continue
+        ra = (a.slot.x-b,a.slot.y-b,a.slot.x+a.slot.w+b,a.slot.y+a.slot.h+b)
+        for j in range(i+1,len(side.placements)):
+            q=side.placements[j]
+            if q.source is None: continue
+            rb=(q.slot.x-b,q.slot.y-b,q.slot.x+q.slot.w+b,q.slot.y+q.slot.h+b)
+            if min(ra[2],rb[2])-max(ra[0],rb[0]) > 1e-5 and min(ra[3],rb[3])-max(ra[1],rb[1]) > 1e-5:
+                result.append((i,j))
+    return result
 
 
 def _draw_marks(page: fitz.Page, slot: Slot, s: Settings):
@@ -610,7 +750,7 @@ def render_side(side: SheetSide, sources: dict[str, fitz.Document], s: Settings,
     for item in side.placements:
         if item.source is not None:
             _place_pdf(target, item.source, item.slot, s, sources)
-        if s.crop_marks:
+        if s.crop_marks and item.source is not None:
             _draw_marks(target, item.slot, s)
         if s.show_page_labels:
             txt = f'{item.source.index+1}  ' if item.source else 'PUSTA  '
@@ -652,7 +792,7 @@ def export_pdf(project: Project, output: str):
         if count == 0:
             raise ValueError('Brak stron do montażu')
         out.set_metadata({'title':'Impozycjoner Studio - montaż PDF',
-                          'creator':'Impozycjoner Studio 0.2.5'})
+                          'creator':'Impozycjoner Studio 0.3.5'})
         Path(output).parent.mkdir(parents=True, exist_ok=True)
         out.save(output, garbage=3, deflate=True)
         return count
@@ -688,7 +828,7 @@ def export_pages(project: Project, output: str) -> int:
         if len(out) == 0:
             raise ValueError('Brak stron do eksportu')
         out.set_metadata({'title':'Impozycjoner Studio - strony w formacie docelowym',
-                          'creator':'Impozycjoner Studio 0.2.5'})
+                          'creator':'Impozycjoner Studio 0.3.5'})
         Path(output).parent.mkdir(parents=True, exist_ok=True)
         out.save(output, garbage=3, deflate=True)
         return len(out)
@@ -721,6 +861,29 @@ def preview(project: Project, pixels: int = 1200, index: int = 0):
     finally:
         for doc in sources.values():
             doc.close()
+
+
+def editor_preview(project: Project, pixels: int = 1200, index: int = 0):
+    """Renders a full empty-cell grid for mouse editing, without adding blank sheets."""
+    from PIL import Image
+    validate(project.settings)
+    sources = open_sources(project.jobs)
+    try:
+        selected = next(islice(plan_sides(project.jobs, sources, project.settings), index, index+1), None)
+        if selected is None:
+            return None, None
+        selected = apply_overrides(selected, project, sources, full_grid=True)
+        out = fitz.open()
+        try:
+            render_side(selected, sources, project.settings, out)
+            page = out[0]
+            zoom = min(pixels/page.rect.width, pixels/page.rect.height, 2)
+            pix = page.get_pixmap(matrix=fitz.Matrix(zoom,zoom),alpha=False)
+            return Image.frombytes('RGB', (pix.width,pix.height),pix.samples), selected
+        finally:
+            out.close()
+    finally:
+        for d in sources.values(): d.close()
 
 
 def save_project(project: Project, path: str):
