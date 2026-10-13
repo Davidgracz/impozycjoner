@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from PIL import ImageTk
 
@@ -11,6 +11,7 @@ from engine import Job, Project, Settings, SourcePage, open_sources, project_sid
 from preflight import inspect_project
 from taxi_ui import TaxiGeneratorFrame
 from preview_labels import overlay_preview, OVERLAY_OPTIONS
+from duplex_calibration import list_profiles, read_profile, store_profile, remove_profile
 
 BG = '#141923'
 PANEL = '#1d2531'
@@ -46,7 +47,7 @@ PRESETS = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title('Impozycjoner Studio 0.3.5')
+        self.title('Impozycjoner Studio 0.3.6')
         self.geometry('1500x850')
         self.minsize(1000, 700)
         self.configure(background=BG)
@@ -115,7 +116,7 @@ class App(tk.Tk):
         top = ttk.Frame(self.imposition_tab, padding=(14, 11))
         top.pack(fill='x')
         ttk.Label(top, text='IMPOZYCJONER', font=('Segoe UI', 19, 'bold'), foreground=ACCENT).pack(side='left', padx=(0, 4))
-        ttk.Label(top, text='STUDIO 0.3.5', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
+        ttk.Label(top, text='STUDIO 0.3.6', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
         self._button(top, 'Otwórz projekt', self.load_project).pack(side='left', padx=3)
         self._button(top, 'Zapisz projekt', self.save_project).pack(side='left', padx=3)
         self._button(top, 'Eksportuj PDF', self.export, True).pack(side='right', padx=5)
@@ -258,6 +259,21 @@ class App(tk.Tk):
         ttk.Label(form,text='DUPLEX I ZNACZNIKI',style='Header.TLabel').pack(anchor='w',pady=(8,6))
         self.flip_var=tk.StringVar(value='Długa krawędź')
         self._row(form,'Odwracanie arkusza',self.flip_var,'combo',('Długa krawędź','Krótka krawędź'))
+        ttk.Label(form,text='KALIBRACJA RECTO / VERSO',style='Header.TLabel').pack(anchor='w',pady=(12,4))
+        self._paired(form,'Przesunięcie verso X (mm)','verso_shift_x',
+                     'Przesunięcie verso Y (mm)','verso_shift_y')
+        ttk.Label(form,text='Krok 0,1 mm. Współrzędne wynikowego verso: +X w prawo, +Y w dół. '
+                  'Offset przesuwa grafikę i linie cięcia, nie arkusz. Recto bez zmian.',
+                  style='Muted.TLabel',wraplength=255,justify='left').pack(anchor='w',pady=(3,8))
+        self.profile_name=tk.StringVar()
+        self.profile_choices=ttk.Combobox(form,textvariable=self.profile_name,
+                          values=list_profiles(),state='readonly')
+        self.profile_choices.pack(fill='x',pady=(2,5))
+        profile_buttons=ttk.Frame(form,style='Panel.TFrame')
+        profile_buttons.pack(fill='x',pady=(0,8))
+        self._button(profile_buttons,'Wczytaj',self.apply_duplex_profile).pack(side='left',expand=True,fill='x')
+        self._button(profile_buttons,'Zapisz',self.save_duplex_profile).pack(side='left',expand=True,fill='x',padx=3)
+        self._button(profile_buttons,'Usuń',self.delete_duplex_profile).pack(side='left',expand=True,fill='x')
         self.marks_var=tk.BooleanVar(value=True)
         self.labels_var=tk.BooleanVar(value=False)
         for text, var in [('Znaczniki cięcia',self.marks_var),('Numery stron (oznaczenia pomocnicze)',self.labels_var)]:
@@ -276,6 +292,46 @@ class App(tk.Tk):
         self.bind('<Control-e>',lambda e:self.export())
         self.bind('<Control-p>',lambda e:self.show_preflight())
         self.bind('<Control-r>',lambda e:self.edit_page_roles())
+
+    def _reload_profile_choices(self):
+        self.profile_choices.configure(values=list_profiles())
+
+    def apply_duplex_profile(self):
+        name = self.profile_name.get().strip()
+        if not name:
+            messagebox.showwarning('Kalibracja', 'Wybierz profil drukarki.', parent=self)
+            return
+        try:
+            profile=read_profile(name)
+            self.variables['verso_shift_x'].set(f"{profile['x']:.1f}")
+            self.variables['verso_shift_y'].set(f"{profile['y']:.1f}")
+            self.flip_var.set(profile['flip'])
+            self.schedule_refresh()
+        except (OSError, ValueError, KeyError) as exc:
+            messagebox.showerror('Kalibracja', str(exc), parent=self)
+
+    def save_duplex_profile(self):
+        name = simpledialog.askstring('Profil maszyny', 'Nazwa profilu drukarki / maszyny:',
+                                      initialvalue=self.profile_name.get(), parent=self)
+        if name is None: return
+        try:
+            s = self._read_fields()
+            store_profile(name, x=s.verso_shift_x, y=s.verso_shift_y, flip=s.flip)
+            self._reload_profile_choices()
+            self.profile_name.set(name.strip())
+        except (OSError, ValueError) as exc:
+            messagebox.showerror('Kalibracja', str(exc), parent=self)
+
+    def delete_duplex_profile(self):
+        name=self.profile_name.get().strip()
+        if not name:return
+        if not messagebox.askyesno('Usuń profil', f'Usunąć profil „{name}”?', parent=self):return
+        try:
+            remove_profile(name)
+            self.profile_name.set('')
+            self._reload_profile_choices()
+        except (OSError, ValueError) as exc:
+            messagebox.showerror('Kalibracja', str(exc), parent=self)
 
     def _separator(self,frm):
         ttk.Separator(frm,orient='horizontal').pack(fill='x',pady=(10,3))
@@ -311,7 +367,7 @@ class App(tk.Tk):
     def _fill_fields(self):
         s=self.project.settings
         self._suspend_events=True
-        for field in ('sheet_w','sheet_h','source_w','source_h','gross_w','gross_h','trim_w','trim_h','bleed','margin_x','margin_y','gap_x','gap_y','columns','rows'):
+        for field in ('sheet_w','sheet_h','source_w','source_h','gross_w','gross_h','trim_w','trim_h','bleed','margin_x','margin_y','gap_x','gap_y','verso_shift_x','verso_shift_y','columns','rows'):
             if field not in self.variables:
                 # single control (margin_y)
                 self.variables[field]=tk.StringVar()

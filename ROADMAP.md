@@ -14,7 +14,7 @@ Odniesienie: https://www.impozycjoner.pl/dokumentacja/v4
 - [x] Wektorowe osadzanie ze spadami, MediaBox/CropBox/TrimBox oraz obroty 0/90/180/270 (dla regularnych stron PDF)
 - [x] Walidacja TrimBox każdej strony, detekcja brakujących spadów i blokowanie niejawnego skalowania
 - [x] Jawne skalowanie źródłowego PDF do netto: Dopasuj/Wypełnij, eksport pojedynczych stron A6/A5/A4
-- [ ] Podgląd Recto/Verso oraz nadrukowalnych pól i obszaru chwytu
+- [x] Podgląd porównania recto/verso oraz profile przesunięcia tyłu (0.3.6); obszar chwytu nadal do opracowania
 - [x] Podstawowy raport preflight: format, fizyczny spad, progi DPI obrazów, próba weryfikacji fontów
 - [ ] Pełny preflight: RGB/CMYK/spot, ICC, transparencje, PDF/X; znaczniki netto/brutto, pasery, paski kontrolne i opisy
 - [ ] Testy z rzeczywistymi plikami produkcyjnymi
@@ -41,7 +41,8 @@ Odniesienie: https://www.impozycjoner.pl/dokumentacja/v4
 ## 0.6 — Ergonomia i automatyzacja
 - [ ] W pełni natywne GUI z szerokim ekranem i edycją użytków na żywo
 - [ ] Hot folders, CLI, automatyzacja JSON
-- [ ] Presety maszyn, integracja z workflow drukarni
+- [x] Lokalne profile kalibracji X/Y i odwracania na maszynę (0.3.6)
+- [ ] Rozszerzone presety maszyn i integracja z workflow drukarni
 - [ ] Eksport/druk wsadowy, testy wydajności 1000+ stron
 - [ ] Opcjonalny natywny port Rust po ustaleniu stabilnego silnika
 
@@ -54,4 +55,5 @@ Odniesienie: https://www.impozycjoner.pl/dokumentacja/v4
 
 - [x] 0.3.1 first phase: manual cell selection, recto/verso editing, registration overlay.
 - [x] 0.3.5: native drag/drop, single-slot rotation, independent manual nudge on recto/verso.
-- [ ] Next: machine-specific whole-side recto/verso registration offsets.
+- [x] 0.3.6: machine-specific whole-side verso registration offsets X/Y (0.1 mm), local printer profiles and preflight/export validation.
+- [ ] Next: sheet-registration measurement chart and tighter preview of overprint/crosshair differences.

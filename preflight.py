@@ -11,7 +11,7 @@ import json
 
 import pymupdf as fitz
 
-from engine import Job, Project, Settings, mm, media_rect, open_sources, scaling_layout, validate, bleed_for, gross_dimensions, validate_job_roles, _duplex_pairs, project_sides, overlapping_uses, ROLE_AUTO, ROLE_SKIP
+from engine import Job, Project, Settings, mm, media_rect, open_sources, scaling_layout, validate, bleed_for, gross_dimensions, validate_job_roles, _duplex_pairs, project_sides, overlapping_uses, plan_sides, ROLE_AUTO, ROLE_SKIP
 
 
 @dataclass(frozen=True)
@@ -286,10 +286,16 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
                     f'PDF zawiera różne formaty: {sample}. '
                     f'Docelowy format: {s.trim_w:g} × {s.trim_h:g} mm. '
                     'Sprawdź, czy zamierzone jest pomniejszanie/powiększanie stron.'))
-        # Additional sheet-geometry inspection is required only for manually
-        # transformed layouts; operators may intentionally overlap artwork,
-        # therefore this is an explicit WARNING, not a fatal geometry error.
-        if project.overrides:
+        # Also validate all effective verso positions after global duplex
+        # calibration: a translated back use must not be clipped off-sheet.
+        if s.mode == 'Dwustronnie' and (s.verso_shift_x or s.verso_shift_y):
+            findings.append(Finding('INFO', '', 0, 'KALIBRACJA_VERSO',
+                f'Kalibracja rewersu: X={s.verso_shift_x:+.1f} mm, '
+                f'Y={s.verso_shift_y:+.1f} mm; kierunek: {s.flip}. '
+                'Przesunięcie dotyczy tylko wydrukowanego tyłu.'))
+        # Check manually edited and globally calibrated sheet geometry.
+        # Overlaps remain warnings; leaving the sheet is a fatal error.
+        if project.overrides or (s.mode == 'Dwustronnie' and (s.verso_shift_x or s.verso_shift_y)):
             affected = set()
             for key in project.overrides:
                 try:
@@ -298,6 +304,10 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
                 except (ValueError, TypeError):
                     findings.append(Finding('BŁĄD', '', 0, 'RECZNY_KLUCZ',
                                             f'Nieprawidłowy ręczny użytek: {key!r}'))
+            if s.mode == 'Dwustronnie' and (s.verso_shift_x or s.verso_shift_y):
+                # All verso sheets, not just those with manual assignments.
+                affected.update((sheet.sheet_number, sheet.side)
+                                for sheet in plan_sides(project.jobs, docs, s) if sheet.side == 1)
             if affected:
                 pending = set(affected)
                 try:

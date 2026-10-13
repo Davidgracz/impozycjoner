@@ -1,4 +1,4 @@
-"""Impozycjoner Studio 0.3.5 - vector PDF imposition engine.
+"""Impozycjoner Studio 0.3.6 - vector PDF imposition engine.
 
 Uses PDF form XObjects via PyMuPDF. No source pages are rasterized during export.
 Units exposed to the operator are millimetres; PyMuPDF operates in points.
@@ -80,6 +80,8 @@ class Settings:
     rows: int = 0
     mode: str = "Jednostronnie"  # Jednostronnie | Dwustronnie | Broszura
     flip: str = "Długa krawędź"
+    verso_shift_x: float = 0.0  # mm in physical (unflipped) back PDF coordinates
+    verso_shift_y: float = 0.0
     crop_marks: bool = True
     show_page_labels: bool = False
     scale_mode: str = "Bez skalowania"  # Bez skalowania | Kadruj 1:1 | Dopasuj | Wypełnij
@@ -176,6 +178,14 @@ def validate(settings: Settings):
         raise ValueError('Nieznany tryb montażu')
     if settings.flip not in ('Długa krawędź', 'Krótka krawędź'):
         raise ValueError('Nieznana metoda odwracania')
+    for key in ('verso_shift_x', 'verso_shift_y'):
+        value = getattr(settings, key)
+        if type(value) not in (int, float) or not isfinite(value):
+            raise ValueError(f'{key}: nieprawidłowe przesunięcie rewersu')
+        if abs(value * 10 - round(value * 10)) > 1e-6:
+            raise ValueError('Kalibracja rewersu musi być ustawiona co 0,1 mm.')
+        if abs(value) > 20.0:
+            raise ValueError('Kalibracja rewersu może wynosić maksymalnie ±20 mm.')
     if settings.scale_mode not in ('Bez skalowania', 'Kadruj 1:1', 'Dopasuj', 'Wypełnij'):
         raise ValueError('Nieznany sposób skalowania PDF')
 
@@ -468,9 +478,36 @@ def apply_overrides(side: SheetSide, project: Project, sources: dict[str, fitz.D
     return SheetSide(side.sheet_number, side.side, tuple(items))
 
 
+def calibrate_verso(side: SheetSide, s: Settings) -> SheetSide:
+    """Move back-side content/marks in *physical sheet coordinates*.
+
+    Slots have already been flipped and manually transformed. Apply calibration
+    last and only once to the output geometry; source PDF vectors stay intact.
+    Recto, booklet and standalone exports are intentionally unaffected.
+    """
+    if side.side != 1 or s.mode != 'Dwustronnie':
+        return side
+    x, y = s.verso_shift_x, s.verso_shift_y
+    if not x and not y:
+        return side
+    b = bleed_for(s)
+    items = []
+    for p in side.placements:
+        slot = p.slot
+        shifted = Slot(slot.x + x, slot.y + y, slot.w, slot.h,
+                       slot.rotation, slot.col, slot.row)
+        if p.source is not None and (shifted.x-b < -1e-5 or shifted.y-b < -1e-5 or
+                shifted.x+shifted.w+b > s.sheet_w+1e-5 or
+                shifted.y+shifted.h+b > s.sheet_h+1e-5):
+            raise ValueError('Kalibracja verso przesuwa użytek ze spadami poza arkusz. Zmniejsz offset X/Y.')
+        items.append(Placement(p.source, shifted, p.side))
+    return SheetSide(side.sheet_number, side.side, tuple(items))
+
+
 def project_sides(project: Project, sources: dict[str, fitz.Document]):
     for side in plan_sides(project.jobs, sources, project.settings):
-        yield apply_overrides(side, project, sources)
+        edited = apply_overrides(side, project, sources)
+        yield calibrate_verso(edited, project.settings)
 
 
 def _edit_entry(project: Project, side: SheetSide, index: int) -> dict:
@@ -792,7 +829,7 @@ def export_pdf(project: Project, output: str):
         if count == 0:
             raise ValueError('Brak stron do montażu')
         out.set_metadata({'title':'Impozycjoner Studio - montaż PDF',
-                          'creator':'Impozycjoner Studio 0.3.5'})
+                          'creator':'Impozycjoner Studio 0.3.6'})
         Path(output).parent.mkdir(parents=True, exist_ok=True)
         out.save(output, garbage=3, deflate=True)
         return count
@@ -828,7 +865,7 @@ def export_pages(project: Project, output: str) -> int:
         if len(out) == 0:
             raise ValueError('Brak stron do eksportu')
         out.set_metadata({'title':'Impozycjoner Studio - strony w formacie docelowym',
-                          'creator':'Impozycjoner Studio 0.3.5'})
+                          'creator':'Impozycjoner Studio 0.3.6'})
         Path(output).parent.mkdir(parents=True, exist_ok=True)
         out.save(output, garbage=3, deflate=True)
         return len(out)
@@ -872,7 +909,7 @@ def editor_preview(project: Project, pixels: int = 1200, index: int = 0):
         selected = next(islice(plan_sides(project.jobs, sources, project.settings), index, index+1), None)
         if selected is None:
             return None, None
-        selected = apply_overrides(selected, project, sources, full_grid=True)
+        selected = calibrate_verso(apply_overrides(selected, project, sources, full_grid=True), project.settings)
         out = fitz.open()
         try:
             render_side(selected, sources, project.settings, out)

@@ -1,3 +1,21 @@
+# Impozycjoner Studio 0.3.6 — kalibracja recto/verso dla maszyn
+
+**Generator TAXI pozostał bez zmian.** W prawym panelu **DUPLEX I ZNACZNIKI** znajdziesz teraz **KALIBRACJA RECTO / VERSO**.
+
+1. Wybierz **Tryb: Dwustronnie** oraz właściwą **krawędź odwracania**.
+2. Wpisz **Przesunięcie verso X / Y** w milimetrach. Krok **0,1 mm**, zakres od **−20 do +20 mm**. **+X** przesuwa grafikę w prawo na *gotowym arkuszu verso w PDF*, a **+Y** w dół. Przykład: `X = 0,7`, `Y = -0,4`.
+3. Kliknij **Odśwież podgląd** i włącz **Rejestracja ON/OFF**, żeby nałożyć przód i odpowiednio odwrócony tył. Zrób kontrolny wydruk dwustronny. **Spasowanie po druku zależy od sposobu obracania papieru w urządzeniu**; ustawienia trzeba potwierdzić na maszynie.
+4. Zapisz osobny profil drukarki przyciskiem **Zapisz**. W przyszłości wybierz nazwę z listy i kliknij **Wczytaj**. Profil zawiera offsety X/Y oraz sposób odwracania arkusza. Przycisk **Usuń** usuwa wybrany profil.
+5. Zapisz projekt `.psimp` — bieżąca kalibracja przechodzi do projektu, niezależnie od profili. Dotychczasowe projekty bez kalibracji pozostają z offsetem 0,0 mm.
+
+**Jak działa korekta:** przesuwa **całą stronę verso** (grafikę użytków, spady i znaczniki cięcia) po obliczeniu automatycznego odwracania i ręcznych przesunięć pojedynczych użytków. **Recto pozostaje bez zmian**, a kadrowanie 1:1, format brutto/netto, przypisania PDF i numery stron są zachowane. Dla trybu Jednostronnie i Broszura globalna kalibracja duplex **nie zmienia eksportu**. Eksport pojedynczych stron też nie jest przesuwany.
+
+**Kontrola bezpieczeństwa:** program blokuje wyjście zajętego użytku wraz ze spadem poza krawędź arkusza (w preflight oraz bezpośrednio w eksporcie). Wydruki próbne są niezbędne — program nie mierzy rzeczywistych odchyłek mechanicznych ani nie kalibruje drukarki automatycznie.
+
+Profile zapisywane są lokalnie na Windows w `%APPDATA%\Impozycjoner Studio\duplex_profiles.json`; nie są wysyłane na GitHub i nie zawierają haseł. Przykład znajdziesz w `examples/kalibracja_036_*.pdf`, `*.psimp` i w obrazie `kalibracja_036_nalozenie.png`.
+
+---
+
 # Nowość 0.3.5 — interaktywny montaż PDF i niezależne recto/verso
 
 **Generator TAXI bez zmian.** Kliknij **Edytuj użytki (przeciągnij)** nad podglądem arkusza:
@@ -33,9 +51,9 @@ Opcje `Dopasuj`, `Wypełnij` i `Bez skalowania` nadal są dostępne. W tych tryb
 
 ---
 
-# Impozycjoner Studio 0.3.5
+# Impozycjoner Studio 0.3.6
 
-Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wzorowanej funkcjonalnie na procesach znanych z programu Impozycjoner 4. Wersja 0.3.1 **nie jest jeszcze pełnym zamiennikiem Impozycjonera 4**. Nie zawiera jego kodu, plików ani znaków handlowych.
+Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wzorowanej funkcjonalnie na procesach znanych z programu Impozycjoner 4. Wersja 0.3.6 **nie jest jeszcze pełnym zamiennikiem Impozycjonera 4**. Nie zawiera jego kodu, plików ani znaków handlowych.
 
 ## Uruchomienie na Windows 10/11
 
@@ -209,3 +227,5 @@ Raport TXT ma **jedną uwagę DPI na stronę**, zawierającą liczbę problematy
 ## 0.3.2: Nakładki numerów w podglądzie
 
 W pasku podglądu wybierz **Brak**, **Numer strony** lub **Plik + numer**. Duże półprzezroczyste oznaczenia nanoszone są wyłącznie na rastrowy podgląd użytków (również recto/verso). **Nie trafiają do eksportowanego PDF**.
+
+- `duplex_calibration.py` — lokalne profile offsetu X/Y i krawędzi odwracania dla maszyn.

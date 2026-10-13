@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.6 — 2026-10-13
+
+- Added 0.1-mm whole-side verso X/Y calibration after all per-slot manual edits and physical flip.
+- Added per-machine calibration profiles (offsets and flip method), saved locally in a versioned JSON file outside the project.
+- Persisted current duplex offsets in backward-compatible `.psimp` project settings.
+- Unified calibrated placements for sheet editor, registration preview, preflight and vector PDF output, including crop marks.
+- Added preflight checks for out-of-sheet calibrated back uses; reject invalid or non-0.1-mm offsets.
+- Added two-sided demo PDFs, project, registration screenshot, GUI smoke check and regression tests.
+- Kept source code and template files of the TAXI generator unchanged.
+
+
 ## 0.3.5 — 2026-10-13
 
 - Added a real visual drag/drop sheet editor for source PDF pages, including empty grid positions.
