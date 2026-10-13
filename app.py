@@ -10,6 +10,7 @@ from PIL import ImageTk
 from engine import Job, Project, Settings, SourcePage, open_sources, project_sides, assign_slot, swap_slots, export_pdf, export_pages, geometry, load_project, preview, save_project, source_summary, PAGE_ROLES, ROLE_AUTO, ROLE_SKIP
 from preflight import inspect_project
 from taxi_ui import TaxiGeneratorFrame
+from preview_labels import overlay_preview, OVERLAY_OPTIONS
 
 BG = '#141923'
 PANEL = '#1d2531'
@@ -45,7 +46,7 @@ PRESETS = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title('Impozycjoner Studio 0.3.1')
+        self.title('Impozycjoner Studio 0.3.2')
         self.geometry('1500x850')
         self.minsize(1000, 700)
         self.configure(background=BG)
@@ -53,6 +54,7 @@ class App(tk.Tk):
         self.project_filename = None
         self.side_index = 0
         self.register_overlay = False
+        self.preview_label_mode = tk.StringVar(value="Numer strony")
         self.render_job = None
         self.preview_photo = None
         self.pending_display_error = None
@@ -106,7 +108,7 @@ class App(tk.Tk):
         top = ttk.Frame(self.imposition_tab, padding=(14, 11))
         top.pack(fill='x')
         ttk.Label(top, text='IMPOZYCJONER', font=('Segoe UI', 19, 'bold'), foreground=ACCENT).pack(side='left', padx=(0, 4))
-        ttk.Label(top, text='STUDIO 0.3.1', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
+        ttk.Label(top, text='STUDIO 0.3.2', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
         self._button(top, 'Otwórz projekt', self.load_project).pack(side='left', padx=3)
         self._button(top, 'Zapisz projekt', self.save_project).pack(side='left', padx=3)
         self._button(top, 'Eksportuj PDF', self.export, True).pack(side='right', padx=5)
@@ -174,6 +176,11 @@ class App(tk.Tk):
         ttk.Label(toolbar,text='PODGLĄD ARKUSZA', font=('Segoe UI', 11, 'bold')).pack(side='left')
         self._button(toolbar,'Edytuj użytki',self.edit_sheet).pack(side='left',padx=5)
         self._button(toolbar,'Rejestracja ON/OFF',self.toggle_overlay).pack(side='left',padx=4)
+        ttk.Label(toolbar, text='Nakładki:').pack(side='left',padx=(10,3))
+        self.preview_label_choice=ttk.Combobox(toolbar, textvariable=self.preview_label_mode,
+                                               values=OVERLAY_OPTIONS, state='readonly', width=15)
+        self.preview_label_choice.pack(side='left',padx=3)
+        self.preview_label_choice.bind('<<ComboboxSelected>>', lambda event:self.refresh())
         self._button(toolbar,'▶',lambda:self.change_side(1)).pack(side='right',padx=2)
         self._button(toolbar,'◀',lambda:self.change_side(-1)).pack(side='right',padx=2)
         self.side_text=tk.StringVar(value='Arkusz 1 • Recto')
@@ -582,6 +589,7 @@ class App(tk.Tk):
                     if inverse.size != image.size:
                         inverse = inverse.resize(image.size)
                     image = Image.blend(image.convert('RGB'), inverse.convert('RGB'), 0.5)
+            image=overlay_preview(image, side, s, self.preview_label_mode.get())
             self.preview_pil=image
             self.preview_photo=ImageTk.PhotoImage(image)
             self.image_size=image.size

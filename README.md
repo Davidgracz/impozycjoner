@@ -1,4 +1,4 @@
-# Impozycjoner Studio 0.3.1
+# Impozycjoner Studio 0.3.2
 
 Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wzorowanej funkcjonalnie na procesach znanych z programu Impozycjoner 4. Wersja 0.3.1 **nie jest jeszcze pełnym zamiennikiem Impozycjonera 4**. Nie zawiera jego kodu, plików ani znaków handlowych.
 
@@ -170,3 +170,7 @@ Raport TXT ma **jedną uwagę DPI na stronę**, zawierającą liczbę problematy
 **Zakres tego wydania:** ręczna edycja pozycji siatki, a nie swobodne przesuwanie współrzędnych lub drag-and-drop. Nie ma jeszcze regulacji rotacji dla pojedynczego użytku, osobnych nakładów montażu mieszanego czy kalibracji przesunięć duplex w mm. Po zmianie rozmiaru siatki warto sprawdzić stare przypisania.
 
 **Generator TAXI pozostawiono bez zmian** względem dołączonej wersji 0.2.8.
+
+## 0.3.2: Nakładki numerów w podglądzie
+
+W pasku podglądu wybierz **Brak**, **Numer strony** lub **Plik + numer**. Duże półprzezroczyste oznaczenia nanoszone są wyłącznie na rastrowy podgląd użytków (również recto/verso). **Nie trafiają do eksportowanego PDF**.

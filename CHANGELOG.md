@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.2 — preview-only page overlays
+
+- Added large semi-transparent per-slot page numbers in the raster preview only.
+- Added Off / Page number / Filename + page number modes.
+- Applies on recto and verso, including manually assigned cells and registration view.
+- Final exported PDF is unchanged by these preview-only overlays.
+
+
 ## 0.3.1 — 2026-10-13
 
 - Added manual sheet slot assignment, swapping, clearing and resetting on selected recto/verso sheet.
