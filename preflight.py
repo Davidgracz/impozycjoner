@@ -11,7 +11,7 @@ import json
 
 import pymupdf as fitz
 
-from engine import Job, Project, Settings, mm, media_rect, open_sources, scaling_layout, validate, bleed_for, gross_dimensions, validate_job_roles, _duplex_pairs, project_sides, overlapping_uses, plan_sides, ROLE_AUTO, ROLE_SKIP
+from engine import Job, Project, Settings, mm, media_rect, open_sources, scaling_layout, validate, bleed_for, gross_dimensions, validate_job_roles, _duplex_pairs, project_sides, overlapping_uses, plan_sides, ROLE_AUTO, ROLE_SKIP, economic_report
 
 
 @dataclass(frozen=True)
@@ -146,8 +146,8 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
             if s.mode == 'Dwustronnie':
                 sum(1 for _ in _duplex_pairs(project.jobs, docs))
             elif s.mode != 'Dwustronnie' and any(
-                j.role not in (ROLE_AUTO, ROLE_SKIP) or any(
-                    role not in (ROLE_AUTO, ROLE_SKIP) for role in j.page_roles.values()
+                j.role not in (ROLE_AUTO, ROLE_SKIP, economic_report) or any(
+                    role not in (ROLE_AUTO, ROLE_SKIP, economic_report) for role in j.page_roles.values()
                 ) for j in project.jobs
             ):
                 findings.append(Finding('BŁĄD', project.jobs[0].path, 0, 'ROLE',
@@ -286,6 +286,20 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
                     f'PDF zawiera różne formaty: {sample}. '
                     f'Docelowy format: {s.trim_w:g} × {s.trim_h:g} mm. '
                     'Sprawdź, czy zamierzone jest pomniejszanie/powiększanie stron.'))
+        if s.mode == 'Ekonomiczny':
+            try:
+                econ = economic_report(project, docs)
+                findings.append(Finding('INFO', '', 0, 'EKON_PLAN',
+                    f'Montaż ekonomiczny: {econ.physical_sheets} arkuszy, '
+                    f'{econ.filled_slots} zajętych użytków, {econ.empty_slots} pustych pól, '
+                    f'{len(econ.patterns)} wzorów arkusza.'))
+                if econ.shortage or econ.overproduction:
+                    findings.append(Finding('BŁĄD', '', 0, 'EKON_NAKLAD',
+                        f'Ręczne przypisania naruszają nakłady: '
+                        f'brakuje {econ.shortage}, nadprodukcja {econ.overproduction}. '
+                        'Popraw ręczne przypisania lub użyj Zamień użytki.'))
+            except (ValueError, RuntimeError) as exc:
+                findings.append(Finding('BŁĄD', '', 0, 'EKON_PLAN', str(exc)))
         # Also validate all effective verso positions after global duplex
         # calibration: a translated back use must not be clipped off-sheet.
         if s.mode == 'Dwustronnie' and (s.verso_shift_x or s.verso_shift_y):

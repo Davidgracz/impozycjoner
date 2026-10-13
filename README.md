@@ -1,3 +1,23 @@
+# Impozycjoner Studio 0.4.0 — montaż ekonomiczny wielu projektów
+
+**Nowość 0.4.0:** nowy tryb **Ekonomiczny** miesza wiele osobnych PDF-ów i wielostronicowych plików na wspólnym arkuszu, przy uwzględnieniu nakładu każdego wzoru. Każda niepominięta strona wielostronicowego PDF-a otrzymuje osobno podaną liczbę sztuk (nakład pliku). Przykładowo: A = 700 szt., B = 300 szt., w obu plikach po jednej stronie. Program przydzieli użytki do kolejnych arkuszy w proporcjach zamówienia, bez wymuszonej nadprodukcji.
+
+## Montaż ekonomiczny — obsługa
+
+1. Dodaj pliki PDF. Zaznacz każdy w lewej liście i ustaw **Nakład pliku**, np. 700, 300, 150. Dla wielostronicowego pliku nakład stosuje się **do każdej niepominiętej strony**, a nie do całej książki.
+2. W prawym panelu w polu **Tryb** wybierz **Ekonomiczny**. W tej wersji jest to wyłącznie druk **jednostronny**, wspólna geometria użytku (jedno netto/brutto/spad dla wszystkich plików).
+3. Ustaw arkusz SRA3/SRA4 lub inny oraz netto, brutto, spad i tryb kadrowania. Różne rozmiary oryginalnych PDF-ów można skalować jawnie; w trybie **Kadruj 1:1** kontrolowane są również ustawione wymiary oryginału i to, czy mieści się wybrany użytek brutto.
+4. Kliknij **📊 Plan ekonomiczny / nakłady**. Otrzymasz liczbę fizycznych arkuszy, wykorzystanie pól oraz liczbę sztuk każdego wzoru. Można również zapisać raport CSV do Excela.
+5. Wykonaj **Preflight PDF** i **Eksportuj PDF**. Eksport zawiera **każdy fizyczny arkusz drukowany raz** — nie ustawiaj dodatkowych kopii w sterowniku drukarki! Obok wyniku `montaz.pdf` powstaje `montaz_plan_ekonomiczny.csv`.
+
+Przykład do testowania: [projekt `.psimp`](examples/economic_040_project.psimp), [trzy wejściowe PDF-y](examples/), [wynik SRA3](examples/economic_040_montaz_SRA3.pdf), [plan Excel/CSV](examples/economic_040_plan.csv) i [podgląd](examples/economic_040_podglad.png). Przykład: 42 A + 21 B + 15 C = 78 użytków na 4 arkuszach SRA3 po 21 pól, 6 pustych pól, nadprodukcja **0**. Oryginały 110 × 70 mm, brutto 96 × 56 mm, netto 93 × 53 mm, spad 1,5 mm.
+
+**Bezpieczeństwo:** jeśli ręczne przypisania zmienią liczbę wydrukowanych wzorów, preflight i eksport zablokują nakład. Ręczne **zamienianie użytków** i zmiana ich geometrii są dopuszczalne przy zachowaniu ilości. Limit bezpiecznego automatycznego montażu ekonomicznego wynosi 10 000 fizycznych arkuszy na jeden eksport; większy nakład należy podzielić.
+
+**Zakres i ograniczenia 0.4.0:** automatyczne mieszanie dotyczy **jednego formatu użytku na arkuszu** oraz drukowania jednostronnego, a nie dowolnych różnych formatów i ich geometrycznego nesting. Liczba arkuszy jest minimalna przy stałej siatce (`ceil(suma sztuk / pola arkusza)`), natomiast algorytm nie optymalizuje jeszcze liczby zmian wzoru, kolejności cięcia ani kosztu uruchomienia maszyny. Tryby Dwustronnie, Broszura oraz zwykła impozycja pozostają niezależne i niezmienione.
+
+---
+
 # Impozycjoner Studio 0.3.7 — arkusz testowy recto/verso i kalkulator kalibracji
 
 **Nowość 0.3.7.** W głównym oknie, w **DUPLEX I ZNACZNIKI → KALIBRACJA RECTO / VERSO**, dostępne są dwa przyciski:
@@ -68,9 +88,9 @@ Opcje `Dopasuj`, `Wypełnij` i `Bez skalowania` nadal są dostępne. W tych tryb
 
 ---
 
-# Impozycjoner Studio 0.3.7
+# Impozycjoner Studio — opis pozostałych funkcji
 
-Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wzorowanej funkcjonalnie na procesach znanych z programu Impozycjoner 4. Wersja 0.3.7 **nie jest jeszcze pełnym zamiennikiem Impozycjonera 4**. Nie zawiera jego kodu, plików ani znaków handlowych.
+Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wzorowanej funkcjonalnie na procesach znanych z programu Impozycjoner 4. Wersja 0.4.0 **nie jest jeszcze pełnym zamiennikiem Impozycjonera 4**. Nie zawiera jego kodu, plików ani znaków handlowych.
 
 ## Uruchomienie na Windows 10/11
 

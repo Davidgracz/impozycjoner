@@ -20,7 +20,8 @@ Odniesienie: https://www.impozycjoner.pl/dokumentacja/v4
 - [ ] Testy z rzeczywistymi plikami produkcyjnymi
 
 ## 0.3 — Zaawansowane akcydensy
-- [ ] Gang-run (różne formaty i nakłady na jednym arkuszu)
+- [x] 0.4.0: gang-run różnych projektów i nakładów **w tym samym formacie użytku**, jednostronnie; raport liczby arkuszy i CSV
+- [ ] Gang-run **różnych fizycznych formatów** użytków / nesting i wielowariantowe koszty cięcia
 - [ ] Optymalizacja wielowariantowa: odpady/nakłady/koszt rozcięcia
 - [x] Ręczne przesuwanie/obracanie/użytkowanie na podglądzie (0.3.5: drag/drop, pola puste, obrót ±90°, przesuw 0,1 mm)
 - [ ] Kreator podziału arkusza, szablony prac
@@ -59,3 +60,5 @@ Odniesienie: https://www.impozycjoner.pl/dokumentacja/v4
 - [ ] Next: sheet-registration measurement chart and tighter preview of overprint/crosshair differences.
 
 - [x] 0.3.7: Print-and-measure duplex registration sheet and guided front-view correction calculator.
+
+- [x] 0.4.0: ekonomiczne mieszanie różnych nakładów o wspólnej geometrii, preflight ilości, raport CSV i przykład SRA3.

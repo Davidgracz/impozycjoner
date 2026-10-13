@@ -1,4 +1,4 @@
-"""Impozycjoner Studio 0.3.6 - vector PDF imposition engine.
+"""Impozycjoner Studio 0.4.0 - vector PDF imposition engine.
 
 Uses PDF form XObjects via PyMuPDF. No source pages are rasterized during export.
 Units exposed to the operator are millimetres; PyMuPDF operates in points.
@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass, field
 from itertools import islice
 from math import floor, isfinite
 from pathlib import Path
+from collections import Counter
 from typing import Iterator
 import json
 import zipfile
@@ -78,7 +79,7 @@ class Settings:
     rotation: str = "Auto"  # Auto, 0, 90
     columns: int = 0          # 0 = automatic
     rows: int = 0
-    mode: str = "Jednostronnie"  # Jednostronnie | Dwustronnie | Broszura
+    mode: str = "Jednostronnie"  # Jednostronnie | Dwustronnie | Broszura | Ekonomiczny
     flip: str = "Długa krawędź"
     verso_shift_x: float = 0.0  # mm in physical (unflipped) back PDF coordinates
     verso_shift_y: float = 0.0
@@ -174,7 +175,7 @@ def validate(settings: Settings):
         raise ValueError('Liczba kolumn/wierszy musi być dodatnia')
     if settings.rotation not in ('Auto', '0', '90', '180', '270'):
         raise ValueError('Nieznana orientacja')
-    if settings.mode not in ('Jednostronnie', 'Dwustronnie', 'Broszura'):
+    if settings.mode not in ('Jednostronnie', 'Dwustronnie', 'Broszura', 'Ekonomiczny'):
         raise ValueError('Nieznany tryb montażu')
     if settings.flip not in ('Długa krawędź', 'Krótka krawędź'):
         raise ValueError('Nieznana metoda odwracania')
@@ -365,11 +366,157 @@ def _booklet_sides(jobs: list[Job], documents: dict[str, fitz.Document], s: Sett
             yield SheetSide(i+1, 1, tuple(Placement(p, slot, 1) for p, slot in zip(back, slots)))
 
 
+ECONOMIC_MAX_SHEETS = 10000
+
+
+def economic_demands(jobs: list[Job], documents: dict[str, fitz.Document]) -> dict[SourcePage, int]:
+    """Requested physical impressions per individual PDF page (not per file).
+
+    A multipage PDF with copies=100 means 100 of EACH non-skipped page.
+    Multiple entries referencing the same page are combined deterministically.
+    Duplex-only role markers are deliberately rejected for this single-sided mode.
+    """
+    validate_job_roles(jobs, documents)
+    quantities: dict[SourcePage, int] = {}
+    for job in jobs:
+        for page in range(len(documents[job.path])):
+            role = job.role_for(page)
+            if role not in (ROLE_AUTO, ROLE_SKIP):
+                raise ValueError('Montaż ekonomiczny jest jednostronny. Usuń role przód/tył lub zmień tryb.')
+            if role != ROLE_SKIP:
+                ref = SourcePage(job.path, page)
+                quantities[ref] = quantities.get(ref, 0) + job.copies
+    if not quantities:
+        raise ValueError('Brak stron do montażu ekonomicznego po pominięciu stron.')
+    return quantities
+
+
+def _economic_sides(jobs: list[Job], documents: dict[str, fitz.Document],
+                    s: Settings) -> Iterator[SheetSide]:
+    """Proportionally mix artworks with exact quantities and zero forced surplus.
+
+    Each sheet is packed to capacity (except the last). We apportion the
+    remaining quantity across the next sheet using largest remainders.
+    This is a *single-gross-size, single-sided* layout, not mixed-size nesting.
+    """
+    remaining = economic_demands(jobs, documents)
+    g = geometry(s)
+    refs = tuple(remaining)  # keep input order for deterministic placements
+    total = sum(remaining.values())
+    minimum_sheets = (total + g.capacity - 1) // g.capacity
+    if minimum_sheets > ECONOMIC_MAX_SHEETS:
+        raise ValueError(f'Montaż ekonomiczny wymaga {minimum_sheets} arkuszy PDF. '
+                         f'Limit bezpiecznego eksportu to {ECONOMIC_MAX_SHEETS}. '
+                         'Podziel nakład na mniejsze partie.')
+    sheet = 0
+    while total:
+        count = min(total, g.capacity)
+        base = [count * remaining[ref] // total for ref in refs]
+        # Hamilton apportionment; extra slots awarded by fractional remainder.
+        unassigned = count - sum(base)
+        ranked = sorted(range(len(refs)),
+                        key=lambda i: (-(count * remaining[refs[i]] % total), i))
+        for idx in ranked:
+            if not unassigned:
+                break
+            if base[idx] < remaining[refs[idx]]:
+                base[idx] += 1
+                unassigned -= 1
+        if unassigned or not sum(base) == count:
+            raise RuntimeError('Nie udało się podzielić arkusza według nakładów.')
+        placements = []
+        for i, ref in enumerate(refs):
+            placements.extend(ref for _ in range(base[i]))
+            remaining[ref] -= base[i]
+        sheet += 1
+        yield SheetSide(sheet, 0, tuple(
+            Placement(ref, g.slots[i], 0) for i, ref in enumerate(placements)))
+        total -= count
+
+
+@dataclass(frozen=True)
+class EconomicLine:
+    source: SourcePage
+    requested: int
+    planned: int
+
+    @property
+    def shortage(self) -> int:
+        return max(0, self.requested-self.planned)
+
+    @property
+    def surplus(self) -> int:
+        return max(0, self.planned-self.requested)
+
+
+@dataclass(frozen=True)
+class EconomicPattern:
+    signature: tuple[SourcePage | None, ...]
+    sheet_count: int
+    first_sheet: int
+
+
+@dataclass(frozen=True)
+class EconomicReport:
+    physical_sheets: int
+    capacity: int
+    filled_slots: int
+    empty_slots: int
+    lines: tuple[EconomicLine, ...]
+    patterns: tuple[EconomicPattern, ...]
+
+    @property
+    def overproduction(self) -> int:
+        return sum(line.surplus for line in self.lines)
+
+    @property
+    def shortage(self) -> int:
+        return sum(line.shortage for line in self.lines)
+
+
+def economic_report(project: Project, docs: dict[str, fitz.Document]) -> EconomicReport:
+    """Audit ACTUAL final placements, including manual edits and blanks.
+
+    The same project_sides iterator drives export, preview and this audit.
+    """
+    if project.settings.mode != 'Ekonomiczny':
+        raise ValueError('Raport nakładów jest dostępny tylko w trybie Ekonomiczny.')
+    expected = economic_demands(project.jobs, docs)
+    actual: Counter[SourcePage] = Counter()
+    patterns: dict[tuple[tuple, ...], list] = {}
+    sheets = 0
+    occupied = 0
+    cap = geometry(project.settings).capacity
+    for side in project_sides(project, docs):
+        sheets += 1
+        # Keep individual turns/displacements in the pattern key. Two sheets
+        # with identical artworks but different manual geometry are NOT one template.
+        pattern = tuple((p.source, round(p.slot.x, 4), round(p.slot.y, 4),
+                         round(p.slot.w, 4), round(p.slot.h, 4), p.slot.rotation)
+                        for p in side.placements)
+        pattern += ((None,),)*(cap-len(pattern))
+        if pattern not in patterns:
+            refs = tuple(p.source for p in side.placements) + (None,)*(cap-len(side.placements))
+            patterns[pattern] = [0, sheets, refs]
+        patterns[pattern][0] += 1
+        for p in side.placements:
+            if p.source is not None:
+                actual[p.source] += 1
+                occupied += 1
+    unexpected = [ref for ref in actual if ref not in expected]
+    ordered = list(expected) + unexpected
+    lines = tuple(EconomicLine(ref, expected.get(ref, 0), actual.get(ref, 0)) for ref in ordered)
+    return EconomicReport(sheets, cap, occupied, sheets*cap-occupied, lines,
+                          tuple(EconomicPattern(v[2], v[0], v[1]) for v in patterns.values()))
+
 def plan_sides(jobs: list[Job], documents: dict[str, fitz.Document], s: Settings) -> Iterator[SheetSide]:
     if not jobs:
         return
     if s.mode == 'Broszura':
         yield from _booklet_sides(jobs, documents, s)
+        return
+    if s.mode == 'Ekonomiczny':
+        yield from _economic_sides(jobs, documents, s)
         return
     g = geometry(s)
     if s.mode == 'Jednostronnie':
@@ -822,6 +969,11 @@ def export_pdf(project: Project, output: str):
     sources = open_sources(project.jobs)
     out = fitz.open()
     try:
+        if project.settings.mode == 'Ekonomiczny':
+            audit = economic_report(project, sources)
+            if audit.overproduction or audit.shortage:
+                raise ValueError(f'Ręczne zmiany naruszają nakłady: nadprodukcja {audit.overproduction}, '
+                                 f'brakuje {audit.shortage}. Przywróć przypisania lub zamień użytki.')
         count = 0
         for side in project_sides(project, sources):
             render_side(side, sources, project.settings, out)
@@ -829,7 +981,7 @@ def export_pdf(project: Project, output: str):
         if count == 0:
             raise ValueError('Brak stron do montażu')
         out.set_metadata({'title':'Impozycjoner Studio - montaż PDF',
-                          'creator':'Impozycjoner Studio 0.3.6'})
+                          'creator':'Impozycjoner Studio 0.4.0'})
         Path(output).parent.mkdir(parents=True, exist_ok=True)
         out.save(output, garbage=3, deflate=True)
         return count
@@ -865,7 +1017,7 @@ def export_pages(project: Project, output: str) -> int:
         if len(out) == 0:
             raise ValueError('Brak stron do eksportu')
         out.set_metadata({'title':'Impozycjoner Studio - strony w formacie docelowym',
-                          'creator':'Impozycjoner Studio 0.3.6'})
+                          'creator':'Impozycjoner Studio 0.4.0'})
         Path(output).parent.mkdir(parents=True, exist_ok=True)
         out.save(output, garbage=3, deflate=True)
         return len(out)

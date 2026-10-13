@@ -7,12 +7,13 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from PIL import ImageTk
 
-from engine import Job, Project, Settings, SourcePage, open_sources, project_sides, assign_slot, swap_slots, export_pdf, export_pages, geometry, load_project, preview, save_project, source_summary, PAGE_ROLES, ROLE_AUTO, ROLE_SKIP
+from engine import Job, Project, Settings, SourcePage, open_sources, economic_report, project_sides, assign_slot, swap_slots, export_pdf, export_pages, geometry, load_project, preview, save_project, source_summary, PAGE_ROLES, ROLE_AUTO, ROLE_SKIP
 from preflight import inspect_project
 from taxi_ui import TaxiGeneratorFrame
 from preview_labels import overlay_preview, OVERLAY_OPTIONS
 from duplex_calibration import list_profiles, read_profile, store_profile, remove_profile
 from duplex_test_sheet import create_duplex_test_pdf, correction_from_front_error
+from economic_csv import write_economic_csv
 
 BG = '#141923'
 PANEL = '#1d2531'
@@ -48,7 +49,7 @@ PRESETS = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title('Impozycjoner Studio 0.3.7')
+        self.title('Impozycjoner Studio 0.4.0')
         self.geometry('1500x850')
         self.minsize(1000, 700)
         self.configure(background=BG)
@@ -117,7 +118,7 @@ class App(tk.Tk):
         top = ttk.Frame(self.imposition_tab, padding=(14, 11))
         top.pack(fill='x')
         ttk.Label(top, text='IMPOZYCJONER', font=('Segoe UI', 19, 'bold'), foreground=ACCENT).pack(side='left', padx=(0, 4))
-        ttk.Label(top, text='STUDIO 0.3.7', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
+        ttk.Label(top, text='STUDIO 0.4.0', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
         self._button(top, 'Otwórz projekt', self.load_project).pack(side='left', padx=3)
         self._button(top, 'Zapisz projekt', self.save_project).pack(side='left', padx=3)
         self._button(top, 'Eksportuj PDF', self.export, True).pack(side='right', padx=5)
@@ -167,6 +168,7 @@ class App(tk.Tk):
         self.copies_entry.pack(side='left',padx=6)
         self.copies_entry.bind('<Return>',lambda e:self.change_copies())
         self._button(copies_frame,'Zmień',self.change_copies).pack(side='left')
+        self._button(jobs, '📊 Plan ekonomiczny / nakłady', self.show_economic_plan).pack(fill='x', pady=(3, 6))
         self._button(jobs, 'Przód / tył — role pliku i stron…', self.edit_page_roles,
                      accent=True).pack(fill='x', pady=(3, 7))
         ttk.Label(jobs,text='Role stosuje się w trybie Dwustronnie. Strony można oznaczać pojedynczo lub zakresami.',
@@ -219,7 +221,9 @@ class App(tk.Tk):
 
         self.variables={}
         self.mode_var=tk.StringVar(value='Jednostronnie')
-        self._row(form,'Tryb',self.mode_var,'combo',('Jednostronnie','Dwustronnie','Broszura'))
+        self._row(form,'Tryb',self.mode_var,'combo',('Jednostronnie','Dwustronnie','Broszura','Ekonomiczny'))
+        ttk.Label(form,text='Ekonomiczny = mieszaj różne pliki/nakłady na arkuszach jednostronnych,\nbez nadprodukcji i ze wspólnym formatem użytku.',
+                  style='Muted.TLabel',wraplength=255,justify='left').pack(anchor='w',pady=(3,4))
         self._separator(form)
         ttk.Label(form,text='ARKUSZ',style='Header.TLabel').pack(anchor='w',pady=(8,6))
         self.preset_var=tk.StringVar(value=next(iter(PRESETS)))
@@ -824,7 +828,7 @@ class App(tk.Tk):
             self.canvas.delete('all')
             self._display_image()
             self.side_text.set(f'Arkusz {side.sheet_number} • {"Recto" if side.side == 0 else "Verso"}' if side else 'Brak stron')
-            self.stats_text.set(f'{details}   •   format: {s.sheet_w:g} × {s.sheet_h:g} mm  •   plików: {len(self.project.jobs)}')
+            self.stats_text.set(f'{details}   •   format: {s.sheet_w:g} × {s.sheet_h:g} mm  •   plików: {len(self.project.jobs)}' + ('  •  MIX NAKŁADÓW' if s.mode == 'Ekonomiczny' else ''))
         except Exception as e:
             self.stats_text.set(f'Błąd konfiguracji / PDF: {e}')
             self.side_text.set('Nie można wyświetlić')
@@ -852,6 +856,69 @@ class App(tk.Tk):
     def toggle_overlay(self):
         self.register_overlay = not self.register_overlay
         self.refresh()
+
+    def show_economic_plan(self):
+        """Show quantities from the exact placements that will be exported."""
+        if not self.project.jobs:
+            messagebox.showwarning('Brak plików', 'Dodaj pliki PDF.', parent=self)
+            return
+        try:
+            self.project.settings = self._read_fields()
+            if self.project.settings.mode != 'Ekonomiczny':
+                messagebox.showinfo('Tryb montażu',
+                    'W USTAWIENIACH MONTAŻU wybierz Tryb → Ekonomiczny.', parent=self)
+                return
+            docs = open_sources(self.project.jobs)
+            try:
+                audit = economic_report(self.project, docs)
+            finally:
+                for doc in docs.values():
+                    doc.close()
+            if audit.shortage or audit.overproduction:
+                messagebox.showerror('Niezgodny nakład',
+                    f'Brakuje {audit.shortage} szt., nadprodukcja {audit.overproduction}. '
+                    'Przywróć ręczne przypisania lub zamień użytki.', parent=self)
+            window = tk.Toplevel(self)
+            window.title('PLAN EKONOMICZNY — użytki i nakłady')
+            window.geometry('925x640')
+            window.transient(self)
+            header = (f'Arkusze do druku: {audit.physical_sheets}    •    '
+                      f'Użytki/arkusz: {audit.capacity}    •    '
+                      f'Zajęte: {audit.filled_slots}    •    Puste: {audit.empty_slots}    •    '
+                      f'Nadprodukcja: {audit.overproduction}')
+            ttk.Label(window, text=header, font=('Segoe UI', 11, 'bold'),
+                      foreground=ACCENT, wraplength=870).pack(anchor='w', padx=14, pady=12)
+            ttk.Label(window, text='NAKŁADY WEDŁUG STRON PDF', foreground=MUTED).pack(anchor='w',padx=14)
+            columns=('file', 'page', 'needed', 'actual', 'extra', 'missing')
+            table=ttk.Treeview(window,columns=columns,show='headings',height=9)
+            for key,label,width in (('file','Plik',230),('page','Str.',60),
+                                    ('needed','Zamówiono',120),('actual','W PDF',100),
+                                    ('extra','Nadprodukcja',135),('missing','Brakuje',90)):
+                table.heading(key,text=label)
+                table.column(key,width=width,anchor='w' if key=='file' else 'center')
+            for line in audit.lines:
+                table.insert('', 'end', values=(Path(line.source.path).name,line.source.index+1,
+                              line.requested,line.planned,line.surplus,line.shortage))
+            table.pack(fill='both', expand=True, padx=14, pady=7)
+            ttk.Label(window, text=f'Wzory arkuszy: {len(audit.patterns)}. '
+                'W eksportowanym PDF każdy arkusz występuje już tyle razy, ile należy go wydrukować. '
+                'Nie ustawiaj dodatkowych kopii w drukarce.', foreground=MUTED,
+                wraplength=870).pack(anchor='w',padx=14,pady=(4,7))
+            actions=ttk.Frame(window,padding=12)
+            actions.pack(fill='x')
+            def save_plan():
+                dest=filedialog.asksaveasfilename(parent=window,defaultextension='.csv',
+                      initialfile='plan_ekonomiczny.csv',filetypes=[('CSV — Excel','*.csv')])
+                if dest:
+                    try:
+                        write_economic_csv(audit,dest)
+                        messagebox.showinfo('Zapisano',f'Raport CSV: {dest}',parent=window)
+                    except Exception as exc:
+                        messagebox.showerror('Błąd zapisu',str(exc),parent=window)
+            self._button(actions, 'Zapisz plan CSV',save_plan,accent=True).pack(side='left')
+            self._button(actions, 'Zamknij',window.destroy).pack(side='right')
+        except Exception as exc:
+            messagebox.showerror('Plan ekonomiczny',str(exc),parent=self)
 
     def edit_sheet(self):
         """Open visual drag/drop sheet editor, with per-use rigid transforms."""
@@ -969,8 +1036,19 @@ class App(tk.Tk):
             self.stats_text.set('Eksport w toku…')
             count=(export_pages(self.project,path) if standalone
                    else export_pdf(self.project,path))
+            extra_note = ''
+            if not standalone and self.project.settings.mode == 'Ekonomiczny':
+                docs = open_sources(self.project.jobs)
+                try:
+                    audit = economic_report(self.project, docs)
+                finally:
+                    for doc in docs.values():
+                        doc.close()
+                csv_dest = str(Path(path).with_name(Path(path).stem + '_plan_ekonomiczny.csv'))
+                write_economic_csv(audit,csv_dest)
+                extra_note = f'\n\nPlan nakładów CSV: {csv_dest}\nNadprodukcja: {audit.overproduction} szt.'
             self.stats_text.set(f'Wyeksportowano {count} stron PDF: {path}')
-            messagebox.showinfo('Eksport zakończony',f'Zapisano {count} stron PDF.\n{path}\n\nSprawdź podgląd i wydruk próbny przed nakładem.')
+            messagebox.showinfo('Eksport zakończony',f'Zapisano {count} stron PDF.\n{path}' + extra_note + '\n\nSprawdź podgląd i wydruk próbny przed nakładem.')
         except Exception as e:
             messagebox.showerror('Błąd eksportu',str(e))
             self.refresh()

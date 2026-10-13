@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0 — 2026-10-13
+
+- Added single-sided economic gang-run mode for multiple PDFs with differing requested quantities.
+- Combined each non-skipped page as its own artwork; exact quantity accounting and proportional per-sheet mixing.
+- Minimum physical sheet count for one common gross/net size, no forced overproduction; deterministic placement.
+- Added the production planning UI with sheet totals, unused slots, overproduction/shortages and UTF-8 Excel CSV reports.
+- Export produces all physical sheet pages directly and saves a matching per-artwork/per-pattern CSV report.
+- Added preflight and export blocking when manual changes alter ordered artwork quantities.
+- Added a vector SRA3 sample, .psimp project, preview, CSV and integration/property-style tests.
+- Preserved all existing imposition and TAXI generator functionality.
+
+
 ## 0.3.7 — 2026-10-13
 
 - Added a printable two-page, vector-only duplex alignment sheet at the current physical sheet size.
