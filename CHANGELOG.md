@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.4 — 2026-10-13
+
+- Added three explicit operator dimensions: original PDF, gross/with-bleed use, and final net trim.
+- Made 1:1 cropping derive symmetric bleed from the gross-minus-net difference (default 1.5 mm/edge).
+- Added source dimension verification and gross-fit preflight/export checks.
+- Maintained project compatibility, existing scaling modes, manual recto/verso editing and page overlays.
+- Kept TAXI generator source and assets unchanged.
+- Added vector sample PDFs and production-focused integration tests.
+
+
 ## 0.3.3 — 2026-10-13
 
 - Added centered 1:1 physical crop mode using distinct source PDF dimensions, finished trim size, and bleed.

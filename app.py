@@ -46,11 +46,18 @@ PRESETS = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title('Impozycjoner Studio 0.3.3')
+        self.title('Impozycjoner Studio 0.3.4')
         self.geometry('1500x850')
         self.minsize(1000, 700)
         self.configure(background=BG)
         self.project = Project()
+        # New production workflow; existing .psimp files restore their own settings.
+        self.project.settings.trim_w = 93
+        self.project.settings.trim_h = 53
+        self.project.settings.bleed = 1.5
+        self.project.settings.gross_w = 96
+        self.project.settings.gross_h = 56
+        self.project.settings.scale_mode = 'Kadruj 1:1'
         self.project_filename = None
         self.side_index = 0
         self.register_overlay = False
@@ -108,7 +115,7 @@ class App(tk.Tk):
         top = ttk.Frame(self.imposition_tab, padding=(14, 11))
         top.pack(fill='x')
         ttk.Label(top, text='IMPOZYCJONER', font=('Segoe UI', 19, 'bold'), foreground=ACCENT).pack(side='left', padx=(0, 4))
-        ttk.Label(top, text='STUDIO 0.3.3', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
+        ttk.Label(top, text='STUDIO 0.3.4', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
         self._button(top, 'Otwórz projekt', self.load_project).pack(side='left', padx=3)
         self._button(top, 'Zapisz projekt', self.save_project).pack(side='left', padx=3)
         self._button(top, 'Eksportuj PDF', self.export, True).pack(side='right', padx=5)
@@ -218,20 +225,29 @@ class App(tk.Tk):
         self.preset_var.trace_add('write',lambda *_:self.apply_preset())
         self._paired(form,'Szer. arkusza (mm)','sheet_w','Wys. arkusza (mm)','sheet_h')
         self._separator(form)
-        ttk.Label(form,text='UŻYTEK / STRONA',style='Header.TLabel').pack(anchor='w',pady=(8,6))
-        self.trim_preset_var=tk.StringVar(value='Z PDF (oryginał)')
-        ttk.Label(form, text='Docelowy format strony',style='Panel.TLabel').pack(anchor='w',pady=(3,2))
+        ttk.Label(form,text='KADROWANIE / WYMIARY',style='Header.TLabel').pack(anchor='w',pady=(8,7))
+        ttk.Label(form,text='1. ORYGINAŁ PLIKU PDF (mm)',style='Panel.TLabel').pack(anchor='w',pady=(3,2))
+        self._paired(form,'Szer. oryginału','source_w','Wys. oryginału','source_h')
+        ttk.Label(form,text='Pobierane automatycznie z PDF. Możesz poprawić ręcznie;\nnie zmienia to fizycznych wymiarów źródła.',
+                  style='Muted.TLabel',wraplength=255,justify='left').pack(anchor='w',pady=(0,8))
+        ttk.Label(form,text='2. UŻYTEK ZE SPADAMI (BRUTTO)',style='Panel.TLabel').pack(anchor='w',pady=(5,2))
+        self._paired(form,'Szer. brutto (mm)','gross_w','Wys. brutto (mm)','gross_h')
+        ttk.Label(form,text='3. WYMIAR NETTO PO DOCIĘCIU',style='Panel.TLabel').pack(anchor='w',pady=(10,2))
+        self.trim_preset_var=tk.StringVar(value='Niestandardowy')
         ttk.Combobox(form,textvariable=self.trim_preset_var,
                      values=list(TRIM_PRESETS),state='readonly').pack(fill='x',pady=(0,5))
         self.trim_preset_var.trace_add('write',lambda *_:self.apply_trim_preset())
         self._paired(form,'Szer. netto (mm)','trim_w','Wys. netto (mm)','trim_h')
-        self.scale_var=tk.StringVar(value='Bez skalowania')
-        self._row(form,'Skalowanie PDF',self.scale_var,'combo',
-                  ('Bez skalowania','Kadruj 1:1','Dopasuj','Wypełnij'))
+        self.derived_bleed_var = tk.StringVar(value='Spad wynikowy: 1,5 mm na każdą stronę')
+        ttk.Label(form,textvariable=self.derived_bleed_var,foreground=ACCENT,
+                  wraplength=255,justify='left').pack(anchor='w',pady=(3,7))
+        self.scale_var=tk.StringVar(value='Kadruj 1:1')
+        self._row(form,'Sposób dopasowania PDF',self.scale_var,'combo',
+                  ('Kadruj 1:1','Bez skalowania','Dopasuj','Wypełnij'))
         self.scale_var.trace_add('write',lambda *_:self.schedule_refresh())
-        ttk.Label(form,text='Dopasuj = cała strona, możliwe marginesy.\nWypełnij = skaluje i przycina.\nKadruj 1:1 = wytnij środek oryginału bez skalowania.',
+        ttk.Label(form,text='Kadruj 1:1 = wytnij środek oryginału bez zmiany wielkości.\nSpad wynika z różnicy brutto i netto.\nInne tryby zachowują dawne skalowanie.',
                   style='Muted.TLabel',wraplength=255,justify='left').pack(anchor='w',pady=(3,6))
-        self._paired(form,'Spad (mm)','bleed','Odstęp X (mm)','gap_x')
+        self._paired(form,'Spad dla innych trybów (mm)','bleed','Odstęp X (mm)','gap_x')
         self._paired(form,'Odstęp Y (mm)','gap_y','Margines X (mm)','margin_x')
         self.variables['margin_y']=tk.StringVar()
         self._row(form,'Margines Y (mm)',self.variables['margin_y'])
@@ -295,11 +311,21 @@ class App(tk.Tk):
     def _fill_fields(self):
         s=self.project.settings
         self._suspend_events=True
-        for field in ('sheet_w','sheet_h','trim_w','trim_h','bleed','margin_x','margin_y','gap_x','gap_y','columns','rows'):
+        for field in ('sheet_w','sheet_h','source_w','source_h','gross_w','gross_h','trim_w','trim_h','bleed','margin_x','margin_y','gap_x','gap_y','columns','rows'):
             if field not in self.variables:
                 # single control (margin_y)
                 self.variables[field]=tk.StringVar()
-            self.variables[field].set(str(getattr(s,field)))
+            value = getattr(s,field)
+            if field in ('gross_w','gross_h') and value == 0:
+                value = (s.trim_w if field=='gross_w' else s.trim_h) + 2*s.bleed
+            if field in ('source_w','source_h') and value == 0 and self.project.jobs:
+                try:
+                    _, source_w, source_h = source_summary(self.project.jobs[0].path)
+                    value = source_w if field=='source_w' else source_h
+                except Exception:
+                    pass
+            self.variables[field].set(str(value) if value else '' if field in ('source_w','source_h') else '0')
+        self._update_derived_bleed()
         self.mode_var.set(s.mode)
         self.scale_var.set(s.scale_mode)
         preset=next((name for name, size in TRIM_PRESETS.items()
@@ -313,10 +339,29 @@ class App(tk.Tk):
         self._suspend_events=False
         self._render_jobs()
 
+    def _update_derived_bleed(self):
+        try:
+            w = float(self.variables['gross_w'].get().replace(',', '.'))
+            h = float(self.variables['gross_h'].get().replace(',', '.'))
+            nw = float(self.variables['trim_w'].get().replace(',', '.'))
+            nh = float(self.variables['trim_h'].get().replace(',', '.'))
+            bx, by = (w-nw)/2, (h-nh)/2
+            if bx < 0 or by < 0 or abs(bx-by) > .02:
+                self.derived_bleed_var.set('BŁĄD: brutto − netto musi dawać identyczny spad z każdej strony.')
+            else:
+                self.derived_bleed_var.set(f'Spad wynikowy: {bx:.2f} mm z każdej strony')
+        except (ValueError, KeyError):
+            self.derived_bleed_var.set('Wprowadź prawidłowe wymiary brutto i netto.')
+
     def _read_fields(self) -> Settings:
         data={}
         for key,var in self.variables.items():
-            data[key]=int(var.get()) if key in ('columns','rows') else float(var.get().replace(',','.'))
+            value = var.get().strip()
+            if not value and key in ('source_w','source_h','gross_w','gross_h'):
+                value = '0'
+            data[key]=int(value) if key in ('columns','rows') else float(value.replace(',','.'))
+        if self.scale_var.get() == 'Kadruj 1:1' and data['gross_w'] > 0:
+            data['bleed'] = (data['gross_w'] - data['trim_w'])/2
         return Settings(**data,mode=self.mode_var.get(), rotation=self.rot_var.get(),
                         scale_mode=self.scale_var.get(),
                         flip=self.flip_var.get(),crop_marks=self.marks_var.get(),
@@ -342,8 +387,15 @@ class App(tk.Tk):
             except Exception:
                 return
         if dims:
+            try:
+                gap = max(0, (float(self.variables['gross_w'].get().replace(',','.')) -
+                              float(self.variables['trim_w'].get().replace(',','.')))/2)
+            except (ValueError, KeyError):
+                gap = 1.5
             self.variables['trim_w'].set(str(dims[0]))
             self.variables['trim_h'].set(str(dims[1]))
+            self.variables['gross_w'].set(str(round(dims[0] + 2*gap,3)))
+            self.variables['gross_h'].set(str(round(dims[1] + 2*gap,3)))
             self.schedule_refresh()
 
     def add_files(self):
@@ -351,9 +403,16 @@ class App(tk.Tk):
         for path in paths:
             try:
                 count,w,h=source_summary(path)
-                if not self.project.jobs and self.trim_preset_var.get() == 'Z PDF (oryginał)':
-                    self.variables['trim_w'].set(str(w))
-                    self.variables['trim_h'].set(str(h))
+                if not self.project.jobs:
+                    # Step 1: actual input PDF dimensions, visible and editable.
+                    self.variables['source_w'].set(str(w))
+                    self.variables['source_h'].set(str(h))
+                    if self.trim_preset_var.get() == 'Z PDF (oryginał)':
+                        self.variables['trim_w'].set(str(w))
+                        self.variables['trim_h'].set(str(h))
+                        bleed = float(self.variables['bleed'].get().replace(',','.'))
+                        self.variables['gross_w'].set(str(round(w+2*bleed,3)))
+                        self.variables['gross_h'].set(str(round(h+2*bleed,3)))
                 self.project.jobs.append(Job(path,1))
             except Exception as e:
                 messagebox.showerror('Błąd PDF',str(e))
@@ -549,6 +608,8 @@ class App(tk.Tk):
             self.refresh()
 
     def schedule_refresh(self):
+        if hasattr(self, 'derived_bleed_var'):
+            self._update_derived_bleed()
         if self._suspend_events:return
         if self.render_job is not None:
             self.after_cancel(self.render_job)

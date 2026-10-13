@@ -1,12 +1,22 @@
-# Nowość 0.3.3 — kadrowanie 1:1
+# Nowość 0.3.4 — trzy wymiary w montażu (oryginał / brutto / netto)
 
-W menu „Skalowanie PDF” wybierz „Kadruj 1:1”. Wpisz format netto (np. 93 × 53 mm),
-spad (np. 2 mm). Program zachowuje wielkość oryginalnej grafiki: wybiera środkowy
-obszar netto 93 × 53 mm oraz dołącza fizyczne 2 mm dookoła (97 × 57 mm), jeśli
-oryginał ma tyle treści. Format 110 × 70 mm zostanie przycięty, a nie przeskalowany.
-Sprawdź położenie kadru w podglądzie; na razie jest zawsze centralny.
+W prawym panelu **KADROWANIE / WYMIARY** są trzy niezależne etapy w takiej kolejności:
 
-# Impozycjoner Studio 0.3.3
+1. **Oryginał PDF:** np. **110 × 70 mm**. Po dodaniu pliku rozmiar uzupełnia się automatycznie z TrimBox strony PDF; możesz wpisać go ręcznie, ale program sprawdzi zgodność z prawdziwym PDF-em.
+2. **Użytek ze spadami (brutto):** np. **96 × 56 mm**. To obszar, który rzeczywiście jest pobierany z oryginału, i wielkość zajmowana przez pojedynczy użytek na arkuszu.
+3. **Netto po docięciu:** np. **93 × 53 mm**. Oznacza końcowy wymiar po przycięciu.
+
+**Spad z każdej strony** jest wyliczany automatycznie: `(96−93)/2 = (56−53)/2 = 1,5 mm`. Przy innych spadach wprowadź odpowiednio inne wymiary brutto. Różnica musi być taka sama w obu osiach.
+
+Dla nowego projektu GUI domyślnie ustawia **brutto 96 × 56 / netto 93 × 53 / spad 1,5 mm** i **Kadruj 1:1**. Źródło jest pobierane z PDF. Oryginał 110 × 70 jest przycinany centralnie: odcinane jest po **7 mm** z każdej strony do brutto 96 × 56, a TrimBox kończy się o **1,5 mm** od brzegu brutto. Żadna grafika nie jest skalowana; wynikowy PDF zachowuje wektory.
+
+**Kontrole produkcyjne:** przy błędnych wymiarach źródła, użytku większym od oryginału lub niesymetrycznym spadzie program blokuje eksport. Preflight rozróżnia oryginał, brutto i netto. W projektach `.psimp` zapisują się wszystkie trzy pary wymiarów; projekty ze starszych wersji pozostają obsługiwane.
+
+Opcje `Dopasuj`, `Wypełnij` i `Bez skalowania` nadal są dostępne. W tych trybach obowiązuje wcześniejsze pole spadu; trzyetapowe wyliczanie spadu dotyczy trybu **Kadruj 1:1**.
+
+---
+
+# Impozycjoner Studio 0.3.4
 
 Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wzorowanej funkcjonalnie na procesach znanych z programu Impozycjoner 4. Wersja 0.3.1 **nie jest jeszcze pełnym zamiennikiem Impozycjonera 4**. Nie zawiera jego kodu, plików ani znaków handlowych.
 

@@ -11,7 +11,7 @@ import json
 
 import pymupdf as fitz
 
-from engine import Job, Project, Settings, mm, media_rect, open_sources, scaling_layout, validate, validate_job_roles, _duplex_pairs, ROLE_AUTO, ROLE_SKIP
+from engine import Job, Project, Settings, mm, media_rect, open_sources, scaling_layout, validate, bleed_for, gross_dimensions, validate_job_roles, _duplex_pairs, ROLE_AUTO, ROLE_SKIP
 
 
 @dataclass(frozen=True)
@@ -183,6 +183,18 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
                     label('BŁĄD', 'FORMAT',
                           f'TrimBox: {width:.2f} × {height:.2f} mm; docelowo: {s.trim_w:g} × {s.trim_h:g} mm. '
                           'Wybierz tryb skalowania lub dopasuj rozmiar.')
+                if s.scale_mode == 'Kadruj 1:1' and s.source_w > 0 and (
+                    abs(width-s.source_w) > .5 or abs(height-s.source_h) > .5
+                ):
+                    label('BŁĄD', 'ORYGINAL',
+                          f'Oryginał PDF ma {width:.2f} × {height:.2f} mm, a ustawiono '
+                          f'{s.source_w:g} × {s.source_h:g} mm. Kadrowanie 1:1 wymaga zgodności.')
+                if s.scale_mode == 'Kadruj 1:1' and s.gross_w > 0:
+                    gw, gh = gross_dimensions(s)
+                    if width + .02 < gw or height + .02 < gh:
+                        label('BŁĄD', 'BRUTTO',
+                              f'Oryginał {width:.2f} × {height:.2f} mm jest za mały '
+                              f'na użytek ze spadami {gw:g} × {gh:g} mm.')
                 if s.scale_mode == 'Kadruj 1:1':
                     if width + .02 < s.trim_w or height + .02 < s.trim_h:
                         label('BŁĄD', 'KADROWANIE',
@@ -191,8 +203,8 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
                     else:
                         label('INFO', 'KADROWANIE',
                               f'Centralne kadrowanie 1:1: z oryginału {width:.2f} × {height:.2f} mm '
-                              f'pozostanie netto {s.trim_w:g} × {s.trim_h:g} mm, '
-                              f'z dodatkowym spadem {s.bleed:g} mm na stronę.')
+                              f'pozostanie użytek {gross_dimensions(s)[0]:g} × {gross_dimensions(s)[1]:g} mm, netto {s.trim_w:g} × {s.trim_h:g} mm, '
+                              f'z dodatkowym spadem {bleed_for(s):g} mm na stronę.')
                     factor, dx, dy = 1.0, (s.trim_w-width)/2, (s.trim_h-height)/2
                 else:
                     factor, dx, dy = scaling_layout(width, height, s.trim_w, s.trim_h,
@@ -214,11 +226,11 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
                 if s.scale_mode == 'Kadruj 1:1':
                     distances = ((width-s.trim_w)/2, (height-s.trim_h)/2,
                                  (width-s.trim_w)/2, (height-s.trim_h)/2)
-                if s.bleed > 0 and min(distances)*factor < s.bleed - .15:
+                if bleed_for(s) > 0 and min(distances)*factor < bleed_for(s) - .15:
                     label('UWAGA', 'SPAD',
                           'Dostępny obszar poza TrimBox (lewo/góra/prawo/dół): '
                           + '/'.join(f'{max(0,v*factor):.2f}' for v in distances) +
-                          f' mm po skalowaniu; wymagany spad: {s.bleed:g} mm. Brakujący obszar pozostanie biały.')
+                          f' mm po skalowaniu; wymagany spad: {bleed_for(s):g} mm. Brakujący obszar pozostanie biały.')
                 if page.rotation:
                     label('INFO', 'ROTACJA', f'Źródłowe /Rotate = {page.rotation}°.')
                 try:

@@ -45,6 +45,8 @@ Odniesienie: https://www.impozycjoner.pl/dokumentacja/v4
 - [ ] Eksport/druk wsadowy, testy wydajności 1000+ stron
 - [ ] Opcjonalny natywny port Rust po ustaleniu stabilnego silnika
 
+- [x] 0.3.4: three-size crop workflow from source PDF through use with bleed to net trim, with 1:1 physical crop.
+
 **Priorytet:** zgodność rzeczywistych wynikowych PDF-ów i bezpieczeństwo druku przed kopiowaniem wyglądu UI piksel w piksel.
 
 - [x] 0.2.8: TAXI side TIFF and rear vector-cut AI/EPS/SVG batch generator (replaces withdrawn email-label module).

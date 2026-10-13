@@ -66,7 +66,11 @@ class Settings:
     sheet_h: float = 320
     trim_w: float = 90
     trim_h: float = 50
-    bleed: float = 2
+    bleed: float = 2  # legacy/non-crop projects; crop derives it from gross and net
+    source_w: float = 0  # 0 = automatically use PDF source TrimBox dimensions
+    source_h: float = 0
+    gross_w: float = 0   # 0 = legacy trim + 2 * bleed
+    gross_h: float = 0
     margin_x: float = 6
     margin_y: float = 6
     gap_x: float = 5
@@ -128,10 +132,39 @@ class Geometry:
     capacity: int
 
 
+def gross_dimensions(s: Settings) -> tuple[float, float]:
+    """Physical size of a single imposed use, including symmetric bleed."""
+    if s.scale_mode == 'Kadruj 1:1' and s.gross_w > 0 and s.gross_h > 0:
+        return s.gross_w, s.gross_h
+    return s.trim_w + 2*s.bleed, s.trim_h + 2*s.bleed
+
+
+def bleed_for(s: Settings) -> float:
+    """For three-size crop workflow, derive bleed from gross minus net."""
+    if s.scale_mode == 'Kadruj 1:1' and s.gross_w > 0 and s.gross_h > 0:
+        return (s.gross_w-s.trim_w)/2
+    return s.bleed
+
+
 def validate(settings: Settings):
     for key in ('sheet_w', 'sheet_h', 'trim_w', 'trim_h'):
         if not isfinite(getattr(settings, key)) or getattr(settings, key) <= 0:
             raise ValueError(f'{key}: wymiar musi być większy od zera')
+    for key in ('source_w', 'source_h', 'gross_w', 'gross_h'):
+        value = getattr(settings, key)
+        if not isfinite(value) or value < 0:
+            raise ValueError(f'{key}: wymiar musi być nieujemny')
+    if (settings.source_w == 0) != (settings.source_h == 0):
+        raise ValueError('Wprowadź oba wymiary oryginału PDF albo pozostaw oba jako automatyczne.')
+    if (settings.gross_w == 0) != (settings.gross_h == 0):
+        raise ValueError('Wprowadź szerokość i wysokość użytku ze spadami.')
+    if settings.scale_mode == 'Kadruj 1:1' and settings.gross_w > 0:
+        bx = (settings.gross_w - settings.trim_w)/2
+        by = (settings.gross_h - settings.trim_h)/2
+        if bx < -.001 or by < -.001:
+            raise ValueError('Użytek ze spadami nie może być mniejszy niż format netto.')
+        if abs(bx-by) > .02:
+            raise ValueError('Spad ma być jednakowy z każdej strony: różnica użytek–netto musi być taka sama w obu wymiarach.')
     for key in ('bleed', 'margin_x', 'margin_y', 'gap_x', 'gap_y'):
         if not isfinite(getattr(settings, key)) or getattr(settings, key) < 0:
             raise ValueError(f'{key}: wartość nie może być ujemna')
@@ -161,7 +194,7 @@ def geometry(s: Settings) -> Geometry:
     candidates = []
     for angle in ([0, 90] if s.rotation == 'Auto' else [int(s.rotation)]):
         w, h = (s.trim_w, s.trim_h) if angle in (0, 180) else (s.trim_h, s.trim_w)
-        cell_w, cell_h = w + 2*s.bleed, h + 2*s.bleed
+        cell_w, cell_h = w + 2*bleed_for(s), h + 2*bleed_for(s)
         auto_cols = max(0, floor((available_w+s.gap_x+1e-8)/(cell_w+s.gap_x)))
         auto_rows = max(0, floor((available_h+s.gap_y+1e-8)/(cell_h+s.gap_y)))
         cols = s.columns if s.columns else auto_cols
@@ -171,8 +204,8 @@ def geometry(s: Settings) -> Geometry:
         if cols < 1 or rows < 1 or used_w > available_w+1e-7 or used_h > available_h+1e-7:
             continue
         slots = []
-        left = s.margin_x + (available_w-used_w)/2 + s.bleed
-        top = s.margin_y + (available_h-used_h)/2 + s.bleed
+        left = s.margin_x + (available_w-used_w)/2 + bleed_for(s)
+        top = s.margin_y + (available_h-used_h)/2 + bleed_for(s)
         for row in range(rows):
             for col in range(cols):
                 slots.append(Slot(left+col*(cell_w+s.gap_x),
@@ -304,14 +337,14 @@ def _booklet_sides(jobs: list[Job], documents: dict[str, fitz.Document], s: Sett
         raise ValueError('Brak stron broszury po wykluczeniu stron z montażu')
     refs += [None]*((-len(refs)) % 4)
     n = len(refs)
-    required_w = 2*(s.trim_w+2*s.bleed) + s.gap_x
-    required_h = s.trim_h+2*s.bleed
+    required_w = 2*(s.trim_w+2*bleed_for(s)) + s.gap_x
+    required_h = s.trim_h+2*bleed_for(s)
     if required_w > s.sheet_w - 2*s.margin_x or required_h > s.sheet_h - 2*s.margin_y:
         raise ValueError('Broszura 2-up nie mieści się: zmień arkusz albo format strony')
-    left = (s.sheet_w - required_w)/2 + s.bleed
-    top = (s.sheet_h - required_h)/2 + s.bleed
+    left = (s.sheet_w - required_w)/2 + bleed_for(s)
+    top = (s.sheet_h - required_h)/2 + bleed_for(s)
     slots = [Slot(left, top, s.trim_w, s.trim_h, 0, 0, 0),
-             Slot(left+s.trim_w+2*s.bleed+s.gap_x, top,
+             Slot(left+s.trim_w+2*bleed_for(s)+s.gap_x, top,
                   s.trim_w, s.trim_h, 0, 1, 0)]
     for _ in range(job.copies):
         for i in range(n//4):
@@ -397,7 +430,7 @@ def _draw_marks(page: fitz.Page, slot: Slot, s: Settings):
     """Create slim vector trim marks separated from bleed when space permits."""
     x, y, w, h = slot.x, slot.y, slot.w, slot.h
     # Do not print black into bleed. Each mark begins 0.8mm after bleed.
-    offset = s.bleed + 0.8
+    offset = bleed_for(s) + 0.8
     length = 3.0
     rect = ((0, 0, s.sheet_w, s.sheet_h))
     for cx in (x, x+w):
@@ -472,6 +505,12 @@ def _place_pdf(target: fitz.Page, p: SourcePage, slot: Slot, s: Settings,
     apparent_w, apparent_h = ((mm(trim.height), mm(trim.width))
                               if original_angle in (90, 270)
                               else (mm(trim.width), mm(trim.height)))
+    if s.scale_mode == 'Kadruj 1:1' and s.source_w > 0:
+        if abs(apparent_w - s.source_w) > .5 or abs(apparent_h - s.source_h) > .5:
+            raise ValueError(
+                f'{Path(p.path).name}, strona {p.index+1}: rzeczywisty oryginał '
+                f'{apparent_w:.2f} × {apparent_h:.2f} mm różni się od ustawionego '
+                f'{s.source_w:g} × {s.source_h:g} mm. Popraw rozmiar oryginału.')
     if s.scale_mode == 'Bez skalowania' and (
         abs(apparent_w-s.trim_w) > 0.5 or abs(apparent_h-s.trim_h) > 0.5
     ):
@@ -488,6 +527,12 @@ def _place_pdf(target: fitz.Page, p: SourcePage, slot: Slot, s: Settings,
         # The existing bleed-placement code below requests the margin outside it.
         target_w = pt(s.trim_h if original_angle in (90, 270) else s.trim_w)
         target_h = pt(s.trim_w if original_angle in (90, 270) else s.trim_h)
+        gross_w, gross_h = gross_dimensions(s)
+        if s.gross_w > 0 and (apparent_w + .02 < gross_w or apparent_h + .02 < gross_h):
+            raise ValueError(
+                f'{Path(p.path).name}, strona {p.index+1}: oryginał jest za mały '
+                f'na użytek ze spadami {gross_w:g} × {gross_h:g} mm. '
+                'Kadrowanie nie może utworzyć brakującej grafiki.')
         if target_w > trim.width + .02 or target_h > trim.height + .02:
             raise ValueError(
                 f'{Path(p.path).name}, strona {p.index+1}: oryginał jest za mały '
@@ -515,17 +560,17 @@ def _place_pdf(target: fitz.Page, p: SourcePage, slot: Slot, s: Settings,
     # Required source bleed becomes larger when shrinking a source (e.g. A4
     # -> A6 needs 4mm source bleed to supply 2mm at output). Missing areas
     # stay white: the engine never invents an extended image.
-    needed = pt(s.bleed)/factor
+    needed = pt(bleed_for(s))/factor
     desired = fitz.Rect(trim.x0-needed, trim.y0-needed,
                         trim.x1+needed, trim.y1+needed)
 
     # The 'Wypełnij' mode enlarges and crops to the target cell. Transform
     # target cell limits backwards, then clip the source to that range, so
     # content never bleeds into neighboring imposition cells.
-    allowed_x0 = (pt(slot.x-s.bleed)-base_x)/factor
-    allowed_y0 = (pt(slot.y-s.bleed)-base_y)/factor
-    allowed_x1 = (pt(slot.x+slot.w+s.bleed)-base_x)/factor
-    allowed_y1 = (pt(slot.y+slot.h+s.bleed)-base_y)/factor
+    allowed_x0 = (pt(slot.x-bleed_for(s))-base_x)/factor
+    allowed_y0 = (pt(slot.y-bleed_for(s))-base_y)/factor
+    allowed_x1 = (pt(slot.x+slot.w+bleed_for(s))-base_x)/factor
+    allowed_y1 = (pt(slot.y+slot.h+bleed_for(s))-base_y)/factor
     orig_corners = [_inverse_rotate_point(x, y, trim.width, trim.height, angle)
                     for x, y in ((allowed_x0, allowed_y0),
                                  (allowed_x0, allowed_y1),
@@ -631,14 +676,14 @@ def export_pages(project: Project, output: str) -> int:
     out = fitz.open()
     try:
         for source in _page_refs(project.jobs, sources):
-            w = s.trim_w + 2*s.bleed
-            h = s.trim_h + 2*s.bleed
+            w = s.trim_w + 2*bleed_for(s)
+            h = s.trim_h + 2*bleed_for(s)
             page = out.new_page(width=pt(w), height=pt(h))
-            slot = Slot(s.bleed, s.bleed, s.trim_w, s.trim_h, 0, 0, 0)
+            slot = Slot(bleed_for(s), bleed_for(s), s.trim_w, s.trim_h, 0, 0, 0)
             _place_pdf(page, source, slot, s, sources)
-            if s.bleed:
-                page.set_trimbox(fitz.Rect(pt(s.bleed), pt(s.bleed),
-                                           pt(s.bleed+s.trim_w), pt(s.bleed+s.trim_h)))
+            if bleed_for(s):
+                page.set_trimbox(fitz.Rect(pt(bleed_for(s)), pt(bleed_for(s)),
+                                           pt(bleed_for(s)+s.trim_w), pt(bleed_for(s)+s.trim_h)))
                 page.set_bleedbox(page.rect)
         if len(out) == 0:
             raise ValueError('Brak stron do eksportu')
