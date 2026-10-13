@@ -1,6 +1,6 @@
-# Impozycjoner Studio 0.2.6
+# Impozycjoner Studio 0.3.1
 
-Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wzorowanej funkcjonalnie na procesach znanych z programu Impozycjoner 4. Wersja 0.2.6 **nie jest jeszcze pełnym zamiennikiem Impozycjonera 4**. Nie zawiera jego kodu, plików ani znaków handlowych.
+Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wzorowanej funkcjonalnie na procesach znanych z programu Impozycjoner 4. Wersja 0.3.1 **nie jest jeszcze pełnym zamiennikiem Impozycjonera 4**. Nie zawiera jego kodu, plików ani znaków handlowych.
 
 ## Uruchomienie na Windows 10/11
 
@@ -43,7 +43,7 @@ Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wz
 - Znaczniki przy małych odstępach mogą wchodzić w obszar innych użytków, dlatego przed produkcją wykonaj kontrolę podglądu.
 - Przy dużych nakładach eksport odbywa się w głównym wątku GUI i może chwilowo blokować okno.
 
-## 0.2.6 — Generator naklejek TAXI (Szczecin)
+## 0.3.1 — Generator naklejek TAXI (Szczecin)
 
 Osobna zakładka zastępująca **Generator etykiet z maili**. Bez logowania IMAP, bez podawania danych klientów.
 
@@ -51,19 +51,25 @@ Osobna zakładka zastępująca **Generator etykiet z maili**. Bez logowania IMAP
 
 1. Otwórz **Generator naklejek TAXI**.
 2. Wpisz jeden lub wiele numerów, np. `1740, 1713` (albo po jednym wierszu).
-3. Kliknij **GENERUJ KOMPLET NAKLEJEK TAXI → ZIP** i wybierz miejsce zapisu.
-4. Dla każdego numeru otrzymasz jego osobny folder zawierający:
-   - `<NUMER>_lewy.tif` i `<NUMER>_prawy.tif` — TIFF 2283 × 1102 px, 200 DPI, z zachowanym herbem Szczecina i napisem SZCZECIN; podmieniany jest tylko numer.
-   - `<NUMER>_TYL.ai` — **EPS-based PostScript AI** ze znakami zamienionymi na krzywe; *nie* jest to nowoczesny plik Illustrator CC/PDF.
-   - `<NUMER>_TYL.eps` — taki sam wektorowy projekt jako klasyczny EPS do importu w CorelDRAW X4.
-   - `<NUMER>_TYL.svg` — alternatywne edytowalne krzywe.
-   - `<NUMER>_TYL_PODGLAD.png` — obraz do sprawdzenia wyglądu, **nie** do cięcia.
+3. Kliknij **GENERUJ PLIKI TAXI → JEDEN ZIP** i wybierz miejsce zapisu.
+4. Otrzymasz **jeden ZIP** z plikami luzem, bez osobnych folderów na numery.
 
-Tył na A4 odtwarza układ przesłanego wzorca `TAXI TYL.cdr`: górny numer / SZCZECIN / odwrócone SZCZECIN / odwrócony numer. Wzorzec CDR ma numer **1713**, a dostarczone TIFF-y boczne mają **1740**. Wygenerowane napisy i liczby są obrysami wektorowymi (nie bitmapami, nie aktywnym fontem). Oryginalny CDR nie jest dołączany, nie generujemy natywnego CDR.
+Dla każdego numeru generator tworzy:
+- `<NUMER>_lewy.tif`
+- `<NUMER>_prawy.tif`
+- `<NUMER>_tyl.svg`
+
+Boki pozostają TIFF-ami 2283 × 1102 px, 200 DPI, z zachowanym herbem Szczecina i napisem SZCZECIN; podmieniany jest tylko numer.
+
+Tył jest teraz **wyłącznie SVG** i ma jedną wersję, **bez lustrzanego odbicia**. Geometria tylnej naklejki jest stała:
+- numer TAXI ma zawsze **55 mm wysokości**,
+- napis `SZCZECIN` ma zawsze **120 mm szerokości**.
+
+Wygenerowane napisy i liczby są obrysami wektorowymi (nie bitmapami, nie aktywnym fontem). Oryginalny CDR nie jest dołączany, nie generujemy natywnego CDR.
 
 **Font:** oryginalny wzór był wykonany w *Impact*. Na typowym Windows program używa systemowego `C:\Windows\Fonts\impact.ttf` i przelicza jego obrysy na ścieżki bez kopiowania fontu. Jeśli Impact nie jest dostępny, można wskazać plik `Impact.ttf` z uprawnionej instalacji Windows. Na Linux/testach używany jest font zastępczy — takie pliki **nie są 1:1 zgodne wizualnie** z oryginałem.
 
-**CorelDRAW X4 / ploter:** `AI` jest wersją opartą na starszym EPS/PS, `EPS` jest plikiem zapasowym. Import wektorów EPS/AI został sprawdzony w LibreOffice Draw jako osobne ścieżki, ale **nie potwierdzono jeszcze otwarcia ani cięcia w rzeczywistym CorelDRAW X4**. Przy pierwszym użyciu zaimportuj `.eps` lub `.ai`, sprawdź wymiar strony A4 210 × 297 mm, rozmiar obrysów, ich kolejność i zrób próbne cięcie. **Nie rozpoczynaj produkcji bez kontroli na swojej maszynie.**
+**CorelDRAW X4 / ploter:** generator zapisuje tył jako SVG. Przy pierwszym użyciu zaimportuj `.svg`, sprawdź rzeczywisty wymiar linii cięcia i zrób próbne cięcie. **Nie rozpoczynaj produkcji bez kontroli na swojej maszynie.**
 
 ### Generowanie z konsoli
 
@@ -115,8 +121,8 @@ Wynikowy tekst/wektory nie są rasteryzowane. Fotografie zachowują istniejącą
 
 - `engine.py` — geometria arkusza, plan stron, osadzanie stron PDF i eksport, format projektów.
 - `preflight.py` — podstawowa diagnostyka PDF i raporty TXT/JSON.
-- `labels.py` — parser wiadomości, IMAP SSL, generowanie PDF z etykietami.
-- `labels_ui.py` — zakładka do pobierania poczty, edycji etykiet i eksportu.
+- `taxi_generator.py` — generator boków TIFF i tylnego SVG dla numerów TAXI.
+- `taxi_ui.py` — zakładka generatora TAXI.
 - `app.py` — interfejs desktopowy (Tkinter + Pillow).
 - `tests/` — automatyczne testy regresyjne PDF.
 - `ROADMAP.md` — moduły planowane do pełnej parytetowej funkcjonalności.
@@ -150,3 +156,17 @@ Po pierwszej publikacji zwykły workflow to `git add .`, `git commit -m "Short E
 Jeśli preflight pokazuje strony 1–12 A4 i 13–22 A6, wybór docelowego **A4** sprawi, że strony 13–22 zostaną **powiększone do około 200%**, co może silnie obniżyć efektywne DPI fotografii. Jeśli produkt ma być A6, wybierz docelowy **A6 105 × 148 mm** i skalowanie **Dopasuj**: pierwsze strony zostaną pomniejszone, a kolejne pozostaną zbliżone do 100%.
 
 Raport TXT ma **jedną uwagę DPI na stronę**, zawierającą liczbę problematycznych obrazów i ich minimalną efektywną rozdzielczość. To porządkowanie komunikatów, a nie poprawa jakości pliku. Szczegółowe informacje o każdym obrazie można zapisać w pliku JSON (`image_issues`). Obrazy i logotypy o niskiej rozdzielczości nadal wymagają ręcznej kontroli.
+
+## Edytor użytków i kontrola recto/verso (0.3.1 alpha)
+
+- W zakładce **Impozycja PDF** naciśnij **Edytuj użytki** nad podglądem arkusza.
+- Wybierz pole w tabeli, plik i numer strony, następnie **Przypisz stronę**.
+- **Puste pole** usuwa zawartość wybranej pozycji, **Zamień** podmienia dwie pozycje, a **Przywróć auto** cofa indywidualne nadpisanie.
+- Strzałkami ◀ ▶ przechodzisz po kolejnych stronach arkuszy, w tym po recto i verso. Edycja tyłu nie zmienia przodu.
+- **Rejestracja ON/OFF** w trybie Dwustronnie pokazuje nałożone półprzezroczyste recto i odwrócone verso do kontroli spasowania. To podgląd inspekcyjny — nie wpływa na eksport.
+- **Zapisz projekt** zapisuje ręczne przypisania do `.psimp` i ponowne otwarcie je przywraca.
+- Ręczne użytki trafiają do tego samego silnika renderującego w podglądzie i eksporcie PDF.
+
+**Zakres tego wydania:** ręczna edycja pozycji siatki, a nie swobodne przesuwanie współrzędnych lub drag-and-drop. Nie ma jeszcze regulacji rotacji dla pojedynczego użytku, osobnych nakładów montażu mieszanego czy kalibracji przesunięć duplex w mm. Po zmianie rozmiaru siatki warto sprawdzić stare przypisania.
+
+**Generator TAXI pozostawiono bez zmian** względem dołączonej wersji 0.2.8.

@@ -1,11 +1,8 @@
 """Local production generator of Szczecin TAXI number decals.
 
 Source side TIFF artwork is retained at native resolution. Rear cutter artwork
-is written as genuine closed vector glyph outlines (EPS-based Illustrator .ai,
-EPS and SVG), independent of fonts on the cutting workstation.
-
-X4 import of the generated .ai needs a real on-machine validation; an EPS file
-is also provided as a compatibility fallback. Not a native Corel CDR writer.
+is written as a single SVG outline decal: one number over the word SZCZECIN,
+without mirror copies. The SVG remains font-free and uses genuine vector curves.
 """
 from __future__ import annotations
 
@@ -24,7 +21,7 @@ from fontTools.pens.boundsPen import BoundsPen
 from fontTools.pens.svgPathPen import SVGPathPen
 from fontTools.pens.basePen import BasePen
 
-VERSION = '0.2.6'
+VERSION = '0.2.8'
 REFERENCE_NUMBER = '1740'
 DPI = 200
 IMAGE_SIZE = (2283, 1102)
@@ -148,135 +145,114 @@ def _wrap_svg(width: float, height: float, body: str) -> str:
             f'viewBox="0 0 {width} {height}">{body}</svg>')
 
 
-def rear_svg(number: str, outlined: OutlinedText, *, preview=False) -> str:
-    """A4, two mirrored pairs as in the supplied X4 CDR reference thumbnail.
+def _text_bounds(outlined: OutlinedText, text: str) -> tuple[float, float, float, float]:
+    _, (bx0, by0, bx1, by1) = outlined._shapes(text)
+    return bx0, by0, bx1, by1
 
-    Placement is based on the preview of the original CDR, which was made from
-    four artistic text objects. Paths remain separate, closed curves.
+
+def _fit_box_for_height(outlined: OutlinedText, text: str, *, target_height: float) -> tuple[float, float]:
+    bx0, by0, bx1, by1 = _text_bounds(outlined, text)
+    height = by1 - by0
+    width = bx1 - bx0
+    scale = target_height / height
+    return width * scale, target_height
+
+
+def _fit_box_for_width(outlined: OutlinedText, text: str, *, target_width: float) -> tuple[float, float]:
+    bx0, by0, bx1, by1 = _text_bounds(outlined, text)
+    height = by1 - by0
+    width = bx1 - bx0
+    scale = target_width / width
+    return target_width, height * scale
+
+
+def rear_svg(number: str, outlined: OutlinedText, *, preview: bool = False) -> str:
+    """Single rear decal: number over SZCZECIN, no mirror copy.
+
+    Production geometry requested by the operator:
+    - number: always 55 mm high
+    - SZCZECIN: always 120 mm wide
     """
     fg = '#101010' if preview else '#000000'
-    # Reference art is notably right-offset on the A4 sheet.
-    left,right = 63.0, 186.0
+    margin = 6.0
+    gap = 4.0
+    number_w, number_h = _fit_box_for_height(outlined, number, target_height=55.0)
+    city_w, city_h = _fit_box_for_width(outlined, 'SZCZECIN', target_width=120.0)
+    canvas_w = max(number_w, city_w) + 2 * margin
+    canvas_h = number_h + gap + city_h + 2 * margin
+    number_x = (canvas_w - number_w) / 2
+    city_x = (canvas_w - city_w) / 2
+    number_y = margin
+    city_y = number_y + number_h + gap
     pieces = [
-        outlined.paths(number,(left,36,right,93),color=fg,fill=False,preview=preview),
-        outlined.paths('SZCZECIN',(left,94,right,116),color=fg,fill=False,preview=preview),
-        outlined.paths('SZCZECIN',(left,117,right,139),inverted=True,color=fg,fill=False,preview=preview),
-        outlined.paths(number,(left,140,right,214),inverted=True,color=fg,fill=False,preview=preview),
+        outlined.paths(number, (number_x, number_y, number_x + number_w, number_y + number_h),
+                       color=fg, fill=False, preview=preview),
+        outlined.paths('SZCZECIN', (city_x, city_y, city_x + city_w, city_y + city_h),
+                       color=fg, fill=False, preview=preview),
     ]
-    # For production the paths are black closed silhouettes. A plotter can cut
-    # both the inner and outer contours of letters without needing a font.
-    return _wrap_svg(210,297,''.join(pieces))
+    return _wrap_svg(canvas_w, canvas_h, ''.join(pieces))
 
 
-class _PostScriptPen(BasePen):
-    """Convert quadratic/cubic TrueType outlines to standard cubic PostScript."""
-    def __init__(self, glyphs):
-        super().__init__(glyphs)
-        self.commands=[]
-
-    def _moveTo(self, xy):
-        self.commands.append(f'{xy[0]:.5f} {xy[1]:.5f} moveto')
-
-    def _lineTo(self, xy):
-        self.commands.append(f'{xy[0]:.5f} {xy[1]:.5f} lineto')
-
-    def _curveToOne(self, a,b,c):
-        self.commands.append(f'{a[0]:.5f} {a[1]:.5f} '
-                             f'{b[0]:.5f} {b[1]:.5f} '
-                             f'{c[0]:.5f} {c[1]:.5f} curveto')
-
-    def _closePath(self):
-        self.commands.append('closepath')
-
-
-def rear_eps(number: str, outlined: OutlinedText) -> bytes:
-    """A4 legacy PostScript EPS, font-free hairline vector strokes."""
-    commands=[
-        '%!PS-Adobe-3.0 EPSF-3.0',
-        '%%Creator: Impozycjoner Studio TAXI cut generator',
-        '%%Title: Taxi rear vinyl cutting artwork',
-        '%%BoundingBox: 0 0 596 842',
-        '%%HiResBoundingBox: 0 0 595.276 841.890',
-        '%%Pages: 1',
-        '%%LanguageLevel: 2',
-        '%%EndComments',
-        '0 setgray',
-    ]
-    ptmm=72/25.4
-    items=[
-        (number, (63.0,36,186.0,93),False),
-        ('SZCZECIN', (63.0,94,186.0,116),False),
-        ('SZCZECIN', (63.0,117,186.0,139),True),
-        (number, (63.0,140,186.0,214),True),
-    ]
-    for text,bounds,inverted in items:
-        glyphs,(bx0,by0,bx1,by1)=outlined._shapes(text)
-        x0,y0,x1,y1=bounds
-        sx=(x1-x0)/(bx1-bx0)
-        sy=(y1-y0)/(by1-by0)
-        d=sy if inverted else -sy
-        tx=x0-bx0*sx
-        ty=y0-by0*sy if inverted else y1+by0*sy
-        commands.extend(['gsave',f'{tx*ptmm:.8f} {(297-ty)*ptmm:.8f} translate',
-                         f'{sx*ptmm:.8f} {-d*ptmm:.8f} scale',
-                         '1.4 setlinewidth 1 setlinejoin 1 setlinecap'])
-        advance=0
-        for char in text:
-            name=outlined.cmap[ord(char)]
-            pen=_PostScriptPen(outlined.glyphs)
-            outlined.glyphs[name].draw(pen)
-            commands.extend(['gsave',f'{advance:.6f} 0 translate','newpath',
-                             *pen.commands,'stroke','grestore'])
-            advance+=outlined.hmtx[name][0]
-        commands.append('grestore')
-    commands.extend(['showpage','%%EOF'])
-    return ('\n'.join(commands)+'\n').encode('ascii')
-
-
-def _fitted_text_mask(text: str, font: Path, size: tuple[int,int]) -> Image.Image:
-    """Render glyphs from the installed typeface, fitting them to a target ROI."""
+def _raw_text_mask(text: str, font: Path) -> Image.Image:
+    """Render text once at high resolution and return its tight mask."""
     fontobj=ImageFont.truetype(str(font),950)
     probe=Image.new('L',(max(12000,len(text)*1700),1800),0)
     ImageDraw.Draw(probe).text((30,10),text,font=fontobj,fill=255)
     bbox=probe.getbbox()
     if not bbox:
         raise ValueError(f'Brak widocznego napisu: {text}')
-    return probe.crop(bbox).resize(size,Image.Resampling.LANCZOS)
+    return probe.crop(bbox)
+
+
+def _fitted_text_mask(text: str, font: Path, size: tuple[int,int]) -> Image.Image:
+    """Fit text proportionally inside a target ROI, preserving original glyph proportions."""
+    raw=_raw_text_mask(text,font)
+    target_w,target_h=size
+    if target_w<=0 or target_h<=0:
+        raise ValueError('Niepoprawny docelowy obszar napisu.')
+    scale=min(target_w/raw.width,target_h/raw.height)
+    out_w=max(1,round(raw.width*scale))
+    out_h=max(1,round(raw.height*scale))
+    return raw.resize((out_w,out_h),Image.Resampling.LANCZOS)
 
 
 def _svg_number_pixels(number: str, outline: OutlinedText, bbox) -> Image.Image:
     x0,y0,x1,y1=bbox
-    mask=_fitted_text_mask(number,outline.source,(x1-x0+1,y1-y0+1))
+    box_w=x1-x0+1
+    box_h=y1-y0+1
+    mask=_fitted_text_mask(number,outline.source,(box_w,box_h))
     result=Image.new('RGBA',IMAGE_SIZE,(0,0,0,0))
     colored=Image.new('RGBA',mask.size,(0,0,0,255))
-    result.paste(colored,(x0,y0),mask)
+    px=x0+max(0,(box_w-mask.size[0])//2)
+    py=y0+max(0,(box_h-mask.size[1])//2)
+    result.paste(colored,(px,py),mask)
     return result
 
 
 def _rear_preview(number: str, outlined: OutlinedText) -> bytes:
-    w,h=707,1000
-    image=Image.new('RGB',(w,h),'white')
-    factor_x=w/210
-    factor_y=h/297
-    texts=[(number,(63,36,186,93),False),
-           ('SZCZECIN',(63,94,186,116),False),
-           ('SZCZECIN',(63,117,186,139),True),
-           (number,(63,140,186,214),True)]
-    for text,(x0,y0,x1,y1),invert in texts:
-        width=max(1,round((x1-x0)*factor_x))
-        height=max(1,round((y1-y0)*factor_y))
-        mask=_fitted_text_mask(text,outlined.source,(width,height))
-        if invert:
-            mask=mask.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
-        outer=mask.filter(ImageFilter.MaxFilter(5))
-        inner=mask.filter(ImageFilter.MinFilter(5))
-        stroke=ImageChops.subtract(outer,inner)
-        # Outline remains a preview; production data is vector EPS/SVG.
-        colored=Image.new('RGB',(width,height),'black')
-        image.paste(colored,(round(x0*factor_x),round(y0*factor_y)),stroke)
-    output=io.BytesIO()
-    image.save(output,format='PNG')
-    return output.getvalue()
+    svg = rear_svg(number, outlined, preview=True)
+    # Raster preview only for UI/debug, not written into the production archive.
+    try:
+        import cairosvg  # type: ignore
+        png = cairosvg.svg2png(bytestring=svg.encode('utf-8'), dpi=144)
+        return png
+    except Exception:
+        width, height = 800, 420
+        image = Image.new('RGB', (width, height), 'white')
+        number_size = (round(width * 0.78), round(height * 0.52))
+        city_size = (round(width * 0.62), round(height * 0.20))
+        num_mask = _fitted_text_mask(number, outlined.source, number_size)
+        city_mask = _fitted_text_mask('SZCZECIN', outlined.source, city_size)
+        for mask, pos in ((num_mask, ((width - num_mask.size[0]) // 2, 26)),
+                          (city_mask, ((width - city_mask.size[0]) // 2, 26 + num_mask.size[1] + 16))):
+            outer = mask.filter(ImageFilter.MaxFilter(5))
+            inner = mask.filter(ImageFilter.MinFilter(5))
+            stroke = ImageChops.subtract(outer, inner)
+            colored = Image.new('RGB', mask.size, 'black')
+            image.paste(colored, pos, stroke)
+        output = io.BytesIO()
+        image.save(output, format='PNG')
+        return output.getvalue()
 
 def side_tiff(number: str, side: str, outlined: OutlinedText, base_dir: Path | None = None) -> bytes:
     with Image.open(template_path(side,base_dir)) as original:
@@ -312,32 +288,24 @@ def make_archive(numbers: list[str] | str, output: str | Path,
     try:
         with zipfile.ZipFile(output,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=6) as z:
             for number in parsed:
-                prefix=f'TAXI_{number}/'
                 for side in ('lewy','prawy'):
-                    filename=prefix+f'{number}_{side}.tif'
-                    z.writestr(filename,side_tiff(number,side,outlined,base_dir))
+                    filename=f'{number}_{side}.tif'
+                    z.writestr(filename, side_tiff(number, side, outlined, base_dir))
                     names.append(filename)
-                svg=rear_svg(number,outlined)
-                eps=rear_eps(number,outlined)
-                outputs=((f'{number}_TYL.ai',eps),(f'{number}_TYL.eps',eps),
-                         (f'{number}_TYL.svg',svg.encode('utf-8')))
-                for filename,payload in outputs:
-                    z.writestr(prefix+filename,payload)
-                    names.append(prefix+filename)
-                # Light background with bold contour preview; EPS remains hairline.
-                pic=_rear_preview(number,outlined)
-                z.writestr(prefix+f'{number}_TYL_PODGLAD.png',pic)
-                names.append(prefix+f'{number}_TYL_PODGLAD.png')
-            z.writestr('CZYTAJ_PRZED_CIECIEM.txt',(
+                svg = rear_svg(number, outlined).encode('utf-8')
+                filename = f'{number}_tyl.svg'
+                z.writestr(filename, svg)
+                names.append(filename)
+            z.writestr('CZYTAJ_PRZED_CIECIEM.txt', (
                 'IMPOZYCJONER TAXI - PAKIET PRODUKCYJNY\n'
-                'BOKI: dwa TIFF-y 2283x1102 px, 200 DPI, z zachowanym herbem i napisem SZCZECIN.\n'
-                'TYL: AI w starszym formacie PostScript/EPS + EPS i SVG jako alternatywy.\n'
-                'W plikach do cięcia są wyłącznie wektorowe krzywe, bez live text.\n'
+                'Wszystkie pliki znajduja sie luzem w jednym folderze ZIP.\n'
+                'BOKI: TIFF 2283x1102 px, 200 DPI, z zachowanym herbem i napisem SZCZECIN.\n'
+                'TYL: jeden plik SVG na numer, bez lustrzanego odbicia.\n'
+                'GEOMETRIA TYLU: numer zawsze 55 mm wysokosci, napis SZCZECIN zawsze 120 mm szerokosci.\n'
+                'W plikach tylu sa wyłącznie wektorowe krzywe, bez live text.\n'
                 f'FONT UZYTY DO KONTUROW: {font_label(source_font)}\n'
-                'CorelDRAW X4: sproboj importu EPS lub otwarcia AI; po imporcie sprawdz linie cięcia.\n'
-                'UWAGA: To nie jest natywny plik CDR; nie potwierdzono jeszcze importu w X4.\n'
-                'Przed cięciem sprawdź rozmiar 210 x 297 mm oraz test na ploterze.\n'
-                'Załączony wzór CDR zawierał 1713; przykładowe boki zawierały 1740.\n'
+                'CorelDRAW X4: importuj SVG i sprawdz linie ciecia oraz rzeczywisty wymiar.\n'
+                'Przed produkcja zrob test na ploterze.\n'
             ).encode('utf-8'))
     finally:
         outlined.close()
@@ -346,7 +314,7 @@ def make_archive(numbers: list[str] | str, output: str | Path,
 
 if __name__ == '__main__':
     import argparse
-    ap=argparse.ArgumentParser(description='TAXI Szczecin side TIFF and rear vector-cut generator')
+    ap=argparse.ArgumentParser(description='TAXI Szczecin side TIFF and rear SVG cut generator')
     ap.add_argument('numbers',nargs='+',help='Numery np. 1740 1713')
     ap.add_argument('-o','--output',default='TAXI_NAKLEJKI.zip')
     ap.add_argument('--font',default=None)

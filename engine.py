@@ -85,6 +85,7 @@ class Settings:
 class Project:
     settings: Settings = field(default_factory=Settings)
     jobs: list[Job] = field(default_factory=list)
+    overrides: dict[str, dict] = field(default_factory=dict)  # "sheet:side:slot" -> source or blank
 
 
 @dataclass(frozen=True)
@@ -346,6 +347,52 @@ def plan_sides(jobs: list[Job], documents: dict[str, fitz.Document], s: Settings
                                                 for i, pair in enumerate(group)))
 
 
+def _manual_key(side: SheetSide, index: int) -> str:
+    return f'{side.sheet_number}:{side.side}:{index}'
+
+
+def apply_overrides(side: SheetSide, project: Project, sources: dict[str, fitz.Document]) -> SheetSide:
+    """Apply saved manual assignments to the exact same plan for preview and export."""
+    if not project.overrides:
+        return side
+    items = list(side.placements)
+    for i, placement in enumerate(items):
+        entry = project.overrides.get(_manual_key(side, i))
+        if entry is None:
+            continue
+        ref = None
+        if not entry.get('blank', False):
+            path = entry.get('path')
+            page = entry.get('page')
+            if path not in sources or not isinstance(page, int) or not (0 <= page < len(sources[path])):
+                raise ValueError(f'Ręcznie wybrana strona nie istnieje: {path}, {page}')
+            ref = SourcePage(path, page)
+        items[i] = Placement(ref, placement.slot, placement.side)
+    return SheetSide(side.sheet_number, side.side, tuple(items))
+
+
+def project_sides(project: Project, sources: dict[str, fitz.Document]):
+    for side in plan_sides(project.jobs, sources, project.settings):
+        yield apply_overrides(side, project, sources)
+
+
+def assign_slot(project: Project, side: SheetSide, index: int, source: SourcePage | None):
+    """Assign one cell independently of the other sheet side."""
+    if not 0 <= index < len(side.placements):
+        raise IndexError('Nieprawidłowy numer użytku')
+    key = _manual_key(side, index)
+    project.overrides[key] = ({'blank': True} if source is None else
+                              {'path': source.path, 'page': source.index})
+
+
+def swap_slots(project: Project, side: SheetSide, a: int, b: int):
+    """Swap two visible cells while preserving all previous manual assignments."""
+    if not 0 <= a < len(side.placements) or not 0 <= b < len(side.placements):
+        raise IndexError('Nieprawidłowy numer użytku')
+    assign_slot(project, side, a, side.placements[b].source)
+    assign_slot(project, side, b, side.placements[a].source)
+
+
 def _draw_marks(page: fitz.Page, slot: Slot, s: Settings):
     """Create slim vector trim marks separated from bleed when space permits."""
     x, y, w, h = slot.x, slot.y, slot.w, slot.h
@@ -539,7 +586,7 @@ def export_pdf(project: Project, output: str):
     out = fitz.open()
     try:
         count = 0
-        for side in plan_sides(project.jobs, sources, project.settings):
+        for side in project_sides(project, sources):
             render_side(side, sources, project.settings, out)
             count += 1
         if count == 0:
@@ -597,7 +644,7 @@ def preview(project: Project, pixels: int = 1200, index: int = 0):
     validate(project.settings)
     sources = open_sources(project.jobs)
     try:
-        sides = plan_sides(project.jobs, sources, project.settings)
+        sides = project_sides(project, sources)
         selected = next(islice(sides, index, index+1), None)
         out = fitz.open()
         try:
@@ -628,7 +675,17 @@ def save_project(project: Project, path: str):
             file_path = str(f)
         jobs.append({'path':file_path,'copies':j.copies,
                      'role':j.role,'page_roles':j.page_roles})
-    payload = {'format':'psimp','version':1, 'settings':asdict(project.settings), 'jobs':jobs}
+    relative_overrides = {}
+    for key, entry in project.overrides.items():
+        copied = dict(entry)
+        if copied.get('path'):
+            absolute = Path(copied['path']).resolve()
+            try:
+                copied['path'] = str(absolute.relative_to(root))
+            except ValueError:
+                copied['path'] = str(absolute)
+        relative_overrides[key] = copied
+    payload = {'format':'psimp','version':2, 'settings':asdict(project.settings), 'jobs':jobs, 'overrides':relative_overrides}
     with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_DEFLATED) as z:
         z.writestr('project.json', json.dumps(payload,ensure_ascii=False,indent=2))
 
@@ -644,7 +701,14 @@ def load_project(path: str) -> Project:
                 else str(Path(j['path']).resolve()), copies=int(j['copies']),
                 role=j.get('role', ROLE_AUTO), page_roles=dict(j.get('page_roles', {})))
             for j in data.get('jobs', [])]
-    return Project(settings, jobs)
+    overrides = data.get('overrides', {})
+    if not isinstance(overrides, dict):
+        raise ValueError('Niepoprawny format ręcznych zmian arkusza')
+    # Stored paths follow the same relative-path convention as source jobs.
+    for entry in overrides.values():
+        if isinstance(entry, dict) and entry.get('path') and not Path(entry['path']).is_absolute():
+            entry['path'] = str((base / entry['path']).resolve())
+    return Project(settings, jobs, overrides)
 
 
 def source_summary(path: str) -> tuple[int, float, float]:

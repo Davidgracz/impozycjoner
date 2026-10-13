@@ -26,7 +26,7 @@ class TaxiGeneratorFrame(ttk.Frame):
         header.grid(row=0,column=0,sticky='ew',pady=(0,14))
         ttk.Label(header,text='GENERATOR NAKLEJEK TAXI',font=('Segoe UI',18,'bold'),
                   foreground=ACCENT).pack(anchor='w')
-        ttk.Label(header,text='Wpisz numery → otrzymasz ZIP z bokami TIFF i wektorowym tyłem do plotera.',
+        ttk.Label(header,text='Wpisz numery → otrzymasz jeden ZIP z plikami luzem: boki TIFF i tyły SVG do plotera.',
                   foreground=MUTED).pack(anchor='w',pady=3)
 
         main=ttk.Frame(self)
@@ -40,7 +40,7 @@ class TaxiGeneratorFrame(ttk.Frame):
         self.numbers.insert('1.0','1740')
         row=ttk.Frame(main)
         row.grid(row=2,column=0,columnspan=2,sticky='ew',pady=8)
-        ttk.Label(row,text='Szablon: Szczecin · lewy/prawy bok 200 DPI · tył A4').pack(side='left')
+        ttk.Label(row,text='Szablon: Szczecin · lewy/prawy bok 200 DPI · tył SVG bez odbicia lustrzanego').pack(side='left')
         self.font_note=tk.StringVar()
         try:
             f=font_path(); self.font_note.set(f'Font: {font_label(f)}' +
@@ -54,9 +54,9 @@ class TaxiGeneratorFrame(ttk.Frame):
         ft.grid(row=5,column=0,columnspan=2,sticky='ew');ft.columnconfigure(0,weight=1)
         ttk.Entry(ft,textvariable=self.custom_font).grid(row=0,column=0,sticky='ew')
         ttk.Button(ft,text='Wybierz font',command=self.pick_font).grid(row=0,column=1,padx=(8,0))
-        ttk.Label(main,text='Paczka zawiera: 2 × TIFF · AI (EPS) · EPS · SVG · podgląd PNG dla każdego numeru.',
+        ttk.Label(main,text='Paczka zawiera luzem: 2 × TIFF + 1 × SVG dla każdego numeru. Tył: numer 55 mm wysokości, SZCZECIN 120 mm szerokości.',
                   foreground=MUTED).grid(row=6,column=0,columnspan=2,sticky='w',pady=(9,6))
-        ttk.Button(main,text='GENERUJ KOMPLET NAKLEJEK TAXI  →  ZIP',
+        ttk.Button(main,text='GENERUJ PLIKI TAXI  →  JEDEN ZIP',
                    command=self.generate,style='Accent.TButton').grid(row=7,column=0,columnspan=2,sticky='ew',pady=7)
         self.status=tk.StringVar(value='Gotowe do generowania.')
         ttk.Label(main,textvariable=self.status,wraplength=850).grid(row=8,column=0,columnspan=2,sticky='w',pady=5)
@@ -85,8 +85,8 @@ class TaxiGeneratorFrame(ttk.Frame):
                 ttk.Label(card,text=f'Nie można wyświetlić: {exc}').pack()
         ttk.Label(section,text=(
             'Uwaga: pliki tylne są konturami do wycinania, nie oryginalnym CDR. '
-            'Przed pierwszą produkcją sprawdź import EPS/AI w CorelDRAW X4 '
-            'oraz rzeczywisty wymiar A4 i linię cięcia.'),
+            'Przed pierwszą produkcją sprawdź import SVG w CorelDRAW X4 '
+            'oraz rzeczywisty wymiar linii cięcia.'),
             foreground=MUTED,wraplength=900,justify='left').grid(row=2,column=0,sticky='w',pady=12)
 
     def pick_font(self):
@@ -100,19 +100,19 @@ class TaxiGeneratorFrame(ttk.Frame):
         except Exception as exc:
             messagebox.showerror('Nieprawidłowe numery',str(exc),parent=self)
             return
-        suggested=f'TAXI_{numbers[0]}.zip' if len(numbers)==1 else f'TAXI_{len(numbers)}_NUMEROW.zip'
+        suggested='TAXI_PLIKI.zip' if len(numbers) > 1 else f'TAXI_{numbers[0]}.zip'
         dest=filedialog.asksaveasfilename(parent=self,title='Zapisz komplet naklejek TAXI',
             defaultextension='.zip',filetypes=[('Archiwum ZIP','*.zip')],initialfile=suggested)
         if not dest:return
-        self.status.set(f'Generuję {len(numbers)} kompletów…')
+        self.status.set(f'Generuję pliki dla {len(numbers)} numerów…')
         self.update_idletasks()
         try:
             result=make_archive(numbers,dest,font=self.custom_font.get().strip() or None)
-            self.status.set(f'Zapisano {len(numbers)} kompletów: {result.archive}. Font: {result.font_name}.')
+            self.status.set(f'Zapisano pliki dla {len(numbers)} numerów: {result.archive}. Font: {result.font_name}.')
             note='' if result.impact_matched else '\nUWAGA: użyto zamiennika fontu. Dla pełnego wzoru użyj Windows Impact.'
             messagebox.showinfo('Gotowe naklejki TAXI',f'Zapisano:\n{result.archive}\n\n'
                 f'Numerów: {len(numbers)}\nPlików: {len(result.files)}\n'
-                'W każdym komplecie: lewy/prawy TIFF, tył AI/EPS/SVG oraz podgląd.'+note,
+                'W ZIP-ie wszystkie pliki są luzem: dla każdego numeru lewy TIFF, prawy TIFF i tył SVG.'+note,
                 parent=self)
         except Exception as exc:
             self.status.set('Błąd generowania: '+str(exc))

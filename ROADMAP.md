@@ -47,5 +47,8 @@ Odniesienie: https://www.impozycjoner.pl/dokumentacja/v4
 
 **Priorytet:** zgodność rzeczywistych wynikowych PDF-ów i bezpieczeństwo druku przed kopiowaniem wyglądu UI piksel w piksel.
 
-- [x] 0.2.6: TAXI side TIFF and rear vector-cut AI/EPS/SVG batch generator (replaces withdrawn email-label module).
+- [x] 0.2.8: TAXI side TIFF and rear vector-cut AI/EPS/SVG batch generator (replaces withdrawn email-label module).
 - [ ] Confirm import and cutting fidelity in actual CorelDRAW X4 and the shop plotter.
+
+- [x] 0.3.1 first phase: manual cell selection, recto/verso editing, registration overlay.
+- [ ] Next: native drag/drop, single-slot rotation, manual nudge and per-side registration offsets.

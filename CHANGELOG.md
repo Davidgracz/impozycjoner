@@ -1,15 +1,26 @@
 # Changelog
 
-## 0.2.6 — 2026-10-12
+## 0.3.1 — 2026-10-13
 
-- Replaced the email-label tab with a batch TAXI decal generator.
-- Preserved original left/right Szczecin TIFF artwork; changed only taxi numbers.
-- Added font-to-curves output for rear vector cutting: legacy EPS-based AI, EPS and SVG.
-- Matched the mirrored rear layout from the supplied CorelDRAW X4 template.
-- Added a one-click ZIP batch export, preview images, CLI and production checks.
-- Removed IMAP connection, email parser, saved login and the old label samples.
-- Added tests for vector curves, safe number parsing, source artwork integrity and output dimensions.
+- Added manual sheet slot assignment, swapping, clearing and resetting on selected recto/verso sheet.
+- Stored manual cell overrides in .psimp and applied them consistently during PDF preview and export.
+- Added duplex registration overlay with appropriate flip-edge mirroring.
+- Retained the TAXI generator unchanged.
+- Added regression tests for overridden duplex export and project persistence.
 
+
+## 0.2.8 — 2026-10-12
+
+- Preserved proportional side-number scaling: the TAXI number is no longer stretched independently in X/Y.
+- Centered the raster side number inside its target area after proportional fitting.
+
+- Changed the TAXI generator output to one shared ZIP with all files stored flat, without per-number subfolders.
+- Simplified the rear cut artwork to SVG-only output.
+- Removed mirrored rear duplicates; each rear decal now contains one number above one SZCZECIN word.
+- Locked rear decal geometry to operator rules: number height 55 mm, SZCZECIN width 120 mm.
+- Kept side artwork as original 200 DPI TIFF templates while still changing only the taxi number.
+- Updated the Windows UI texts, ZIP naming and production notes for the new TAXI workflow.
+- Refreshed tests to validate flat ZIP output and the fixed SVG geometry.
 
 
 ## 0.2.5 — 2026-10-12
