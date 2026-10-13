@@ -78,7 +78,7 @@ class Settings:
     flip: str = "Długa krawędź"
     crop_marks: bool = True
     show_page_labels: bool = False
-    scale_mode: str = "Bez skalowania"  # Bez skalowania | Dopasuj | Wypełnij
+    scale_mode: str = "Bez skalowania"  # Bez skalowania | Kadruj 1:1 | Dopasuj | Wypełnij
 
 
 @dataclass
@@ -143,7 +143,7 @@ def validate(settings: Settings):
         raise ValueError('Nieznany tryb montażu')
     if settings.flip not in ('Długa krawędź', 'Krótka krawędź'):
         raise ValueError('Nieznana metoda odwracania')
-    if settings.scale_mode not in ('Bez skalowania', 'Dopasuj', 'Wypełnij'):
+    if settings.scale_mode not in ('Bez skalowania', 'Kadruj 1:1', 'Dopasuj', 'Wypełnij'):
         raise ValueError('Nieznany sposób skalowania PDF')
 
 
@@ -442,7 +442,7 @@ def scaling_layout(source_w: float, source_h: float, target_w: float,
         scale = min(target_w/source_w, target_h/source_h)
     elif mode == 'Wypełnij':
         scale = max(target_w/source_w, target_h/source_h)
-    elif mode == 'Bez skalowania':
+    elif mode in ('Bez skalowania', 'Kadruj 1:1'):
         scale = 1.0
     else:
         raise ValueError('Nieznany sposób skalowania PDF')
@@ -482,16 +482,31 @@ def _place_pdf(target: fitz.Page, p: SourcePage, slot: Slot, s: Settings,
     if trim.is_empty or any(abs(a-b) > .05 for a,b in zip(trim, trim & media)):
         raise ValueError(f'{Path(p.path).name}: TrimBox poza MediaBox')
 
+    if s.scale_mode == 'Kadruj 1:1':
+        # The selected physical source PDF dimensions are NOT its finished dimensions.
+        # Crop the centered target net rectangle at 100% with no geometric scaling.
+        # The existing bleed-placement code below requests the margin outside it.
+        target_w = pt(s.trim_h if original_angle in (90, 270) else s.trim_w)
+        target_h = pt(s.trim_w if original_angle in (90, 270) else s.trim_h)
+        if target_w > trim.width + .02 or target_h > trim.height + .02:
+            raise ValueError(
+                f'{Path(p.path).name}, strona {p.index+1}: oryginał jest za mały '
+                f'na kadrowanie 1:1 do {s.trim_w:g} × {s.trim_h:g} mm.')
+        cx = (trim.x0 + trim.x1) / 2
+        cy = (trim.y0 + trim.y1) / 2
+        trim = fitz.Rect(cx-target_w/2, cy-target_h/2, cx+target_w/2, cy+target_h/2)
+
     bleedbox = fitz.Rect(original.bleedbox)
     limit = media
-    if bleedbox.contains(trim) and bleedbox != trim and bleedbox != original.cropbox:
+    if (s.scale_mode != 'Kadruj 1:1' and bleedbox.contains(trim)
+            and bleedbox != trim and bleedbox != original.cropbox):
         limit = bleedbox & media
     angle = (original_angle + slot.rotation) % 360
     final_width = trim.width if angle in (0, 180) else trim.height
     final_height = trim.height if angle in (0, 180) else trim.width
     dest_w, dest_h = pt(slot.w), pt(slot.h)
     factor, dx, dy = scaling_layout(final_width, final_height, dest_w, dest_h,
-                                    s.scale_mode)
+                                    ('Bez skalowania' if s.scale_mode == 'Kadruj 1:1' else s.scale_mode))
     # For exact-size source PDFs tolerate printer/export rounding <=0.5mm
     # without stretching artwork in opposite dimensions.
     base_x = pt(slot.x) + dx

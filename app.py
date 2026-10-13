@@ -46,7 +46,7 @@ PRESETS = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title('Impozycjoner Studio 0.3.2')
+        self.title('Impozycjoner Studio 0.3.3')
         self.geometry('1500x850')
         self.minsize(1000, 700)
         self.configure(background=BG)
@@ -108,7 +108,7 @@ class App(tk.Tk):
         top = ttk.Frame(self.imposition_tab, padding=(14, 11))
         top.pack(fill='x')
         ttk.Label(top, text='IMPOZYCJONER', font=('Segoe UI', 19, 'bold'), foreground=ACCENT).pack(side='left', padx=(0, 4))
-        ttk.Label(top, text='STUDIO 0.3.2', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
+        ttk.Label(top, text='STUDIO 0.3.3', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
         self._button(top, 'Otwórz projekt', self.load_project).pack(side='left', padx=3)
         self._button(top, 'Zapisz projekt', self.save_project).pack(side='left', padx=3)
         self._button(top, 'Eksportuj PDF', self.export, True).pack(side='right', padx=5)
@@ -227,9 +227,9 @@ class App(tk.Tk):
         self._paired(form,'Szer. netto (mm)','trim_w','Wys. netto (mm)','trim_h')
         self.scale_var=tk.StringVar(value='Bez skalowania')
         self._row(form,'Skalowanie PDF',self.scale_var,'combo',
-                  ('Bez skalowania','Dopasuj','Wypełnij'))
+                  ('Bez skalowania','Kadruj 1:1','Dopasuj','Wypełnij'))
         self.scale_var.trace_add('write',lambda *_:self.schedule_refresh())
-        ttk.Label(form,text='Dopasuj = cała strona, możliwe marginesy.\nWypełnij = bez marginesów, przycina brzegi.',
+        ttk.Label(form,text='Dopasuj = cała strona, możliwe marginesy.\nWypełnij = skaluje i przycina.\nKadruj 1:1 = wytnij środek oryginału bez skalowania.',
                   style='Muted.TLabel',wraplength=255,justify='left').pack(anchor='w',pady=(3,6))
         self._paired(form,'Spad (mm)','bleed','Odstęp X (mm)','gap_x')
         self._paired(form,'Odstęp Y (mm)','gap_y','Margines X (mm)','margin_x')

@@ -183,9 +183,21 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
                     label('BŁĄD', 'FORMAT',
                           f'TrimBox: {width:.2f} × {height:.2f} mm; docelowo: {s.trim_w:g} × {s.trim_h:g} mm. '
                           'Wybierz tryb skalowania lub dopasuj rozmiar.')
-                factor, dx, dy = scaling_layout(width, height, s.trim_w, s.trim_h,
-                                                s.scale_mode)
-                if s.scale_mode != 'Bez skalowania':
+                if s.scale_mode == 'Kadruj 1:1':
+                    if width + .02 < s.trim_w or height + .02 < s.trim_h:
+                        label('BŁĄD', 'KADROWANIE',
+                              f'Oryginał {width:.2f} × {height:.2f} mm jest za mały '
+                              f'na format netto {s.trim_w:g} × {s.trim_h:g} mm w skali 1:1.')
+                    else:
+                        label('INFO', 'KADROWANIE',
+                              f'Centralne kadrowanie 1:1: z oryginału {width:.2f} × {height:.2f} mm '
+                              f'pozostanie netto {s.trim_w:g} × {s.trim_h:g} mm, '
+                              f'z dodatkowym spadem {s.bleed:g} mm na stronę.')
+                    factor, dx, dy = 1.0, (s.trim_w-width)/2, (s.trim_h-height)/2
+                else:
+                    factor, dx, dy = scaling_layout(width, height, s.trim_w, s.trim_h,
+                                                    s.scale_mode)
+                if s.scale_mode not in ('Bez skalowania', 'Kadruj 1:1'):
                     # Positive offsets = white border; negative = trimmed content.
                     extra = (f'białe marginesy do {max(dx,dy):.2f} mm' if dx > .2 or dy > .2
                              else f'przycięcie do {-min(dx,dy):.2f} mm' if dx < -.2 or dy < -.2
@@ -199,6 +211,9 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
                 if bleed.contains(trim) and bleed != trim and bleed != page.cropbox:
                     avail = bleed & media
                 distances = _distance_box(avail, trim)
+                if s.scale_mode == 'Kadruj 1:1':
+                    distances = ((width-s.trim_w)/2, (height-s.trim_h)/2,
+                                 (width-s.trim_w)/2, (height-s.trim_h)/2)
                 if s.bleed > 0 and min(distances)*factor < s.bleed - .15:
                     label('UWAGA', 'SPAD',
                           'Dostępny obszar poza TrimBox (lewo/góra/prawo/dół): '

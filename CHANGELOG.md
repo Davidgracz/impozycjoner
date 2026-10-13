@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.3 — 2026-10-13
+
+- Added centered 1:1 physical crop mode using distinct source PDF dimensions, finished trim size, and bleed.
+- Preserved no-scaling exact-size mode and existing fit/fill modes.
+- Added crop-mode size checks and preflight reporting.
+
+
 ## 0.3.2 — preview-only page overlays
 
 - Added large semi-transparent per-slot page numbers in the raster preview only.

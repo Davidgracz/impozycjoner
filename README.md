@@ -1,4 +1,12 @@
-# Impozycjoner Studio 0.3.2
+# Nowość 0.3.3 — kadrowanie 1:1
+
+W menu „Skalowanie PDF” wybierz „Kadruj 1:1”. Wpisz format netto (np. 93 × 53 mm),
+spad (np. 2 mm). Program zachowuje wielkość oryginalnej grafiki: wybiera środkowy
+obszar netto 93 × 53 mm oraz dołącza fizyczne 2 mm dookoła (97 × 57 mm), jeśli
+oryginał ma tyle treści. Format 110 × 70 mm zostanie przycięty, a nie przeskalowany.
+Sprawdź położenie kadru w podglądzie; na razie jest zawsze centralny.
+
+# Impozycjoner Studio 0.3.3
 
 Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wzorowanej funkcjonalnie na procesach znanych z programu Impozycjoner 4. Wersja 0.3.1 **nie jest jeszcze pełnym zamiennikiem Impozycjonera 4**. Nie zawiera jego kodu, plików ani znaków handlowych.
 
