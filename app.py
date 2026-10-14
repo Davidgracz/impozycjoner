@@ -14,6 +14,7 @@ from preview_labels import overlay_preview, OVERLAY_OPTIONS
 from duplex_calibration import list_profiles, read_profile, store_profile, remove_profile
 from duplex_test_sheet import create_duplex_test_pdf, correction_from_front_error
 from economic_csv import write_economic_csv
+from crop_editor import CropEditor
 
 BG = '#141923'
 PANEL = '#1d2531'
@@ -24,6 +25,10 @@ MUTED = '#a7b4c8'
 ACCENT = '#3ed6d0'
 
 TRIM_PRESETS = {
+    'Wizytówka 93 × 53 mm': (93,53),
+    'Wizytówka 90 × 50 mm': (90,50),
+    'DL 99 × 210 mm': (99,210),
+    'A7 74 × 105 mm': (74,105),
     'Z PDF (oryginał)': None,
     'A6 105 × 148 mm': (105, 148),
     'A6 poziomo 148 × 105 mm': (148, 105),
@@ -49,7 +54,7 @@ PRESETS = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title('Impozycjoner Studio 0.4.0')
+        self.title('Impozycjoner Studio 0.4.1')
         self.geometry('1500x850')
         self.minsize(1000, 700)
         self.configure(background=BG)
@@ -61,6 +66,8 @@ class App(tk.Tk):
         self.project.settings.gross_w = 96
         self.project.settings.gross_h = 56
         self.project.settings.scale_mode = 'Kadruj 1:1'
+        self.project.settings.auto_gross = True
+        self.project.settings.auto_source = True
         self.project_filename = None
         self.side_index = 0
         self.register_overlay = False
@@ -118,7 +125,7 @@ class App(tk.Tk):
         top = ttk.Frame(self.imposition_tab, padding=(14, 11))
         top.pack(fill='x')
         ttk.Label(top, text='IMPOZYCJONER', font=('Segoe UI', 19, 'bold'), foreground=ACCENT).pack(side='left', padx=(0, 4))
-        ttk.Label(top, text='STUDIO 0.4.0', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
+        ttk.Label(top, text='STUDIO 0.4.1', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
         self._button(top, 'Otwórz projekt', self.load_project).pack(side='left', padx=3)
         self._button(top, 'Zapisz projekt', self.save_project).pack(side='left', padx=3)
         self._button(top, 'Eksportuj PDF', self.export, True).pack(side='right', padx=5)
@@ -168,6 +175,7 @@ class App(tk.Tk):
         self.copies_entry.pack(side='left',padx=6)
         self.copies_entry.bind('<Return>',lambda e:self.change_copies())
         self._button(copies_frame,'Zmień',self.change_copies).pack(side='left')
+        self._button(jobs, '✂ Kadruj wybrany PDF (podgląd)', self.open_crop_editor).pack(fill='x', pady=(3, 6))
         self._button(jobs, '📊 Plan ekonomiczny / nakłady', self.show_economic_plan).pack(fill='x', pady=(3, 6))
         self._button(jobs, 'Przód / tył — role pliku i stron…', self.edit_page_roles,
                      accent=True).pack(fill='x', pady=(3, 7))
@@ -220,6 +228,7 @@ class App(tk.Tk):
         form.bind('<MouseWheel>',lambda e:viewport.yview_scroll(int(-1*e.delta/120),'units'))
 
         self.variables={}
+        self.entries={}
         self.mode_var=tk.StringVar(value='Jednostronnie')
         self._row(form,'Tryb',self.mode_var,'combo',('Jednostronnie','Dwustronnie','Broszura','Ekonomiczny'))
         ttk.Label(form,text='Ekonomiczny = mieszaj różne pliki/nakłady na arkuszach jednostronnych,\nbez nadprodukcji i ze wspólnym formatem użytku.',
@@ -232,19 +241,27 @@ class App(tk.Tk):
         self._paired(form,'Szer. arkusza (mm)','sheet_w','Wys. arkusza (mm)','sheet_h')
         self._separator(form)
         ttk.Label(form,text='KADROWANIE / WYMIARY',style='Header.TLabel').pack(anchor='w',pady=(8,7))
-        ttk.Label(form,text='1. ORYGINAŁ PLIKU PDF (mm)',style='Panel.TLabel').pack(anchor='w',pady=(3,2))
+        ttk.Label(form,text='1. ORYGINAŁ PDF — automatyczne wykrywanie',style='Panel.TLabel').pack(anchor='w',pady=(3,2))
+        self.auto_source_var=tk.BooleanVar(value=True)
+        ttk.Checkbutton(form,text='Rozmiar z każdego pliku PDF',variable=self.auto_source_var,
+                        command=self.toggle_auto_source).pack(anchor='w',pady=(0,3))
         self._paired(form,'Szer. oryginału','source_w','Wys. oryginału','source_h')
-        ttk.Label(form,text='Pobierane automatycznie z PDF. Możesz poprawić ręcznie;\nnie zmienia to fizycznych wymiarów źródła.',
+        ttk.Label(form,text='Podgląd pokazuje wymiary zaznaczonego PDF. Wyłącz automat, aby weryfikować rozmiar ręcznie.',
                   style='Muted.TLabel',wraplength=255,justify='left').pack(anchor='w',pady=(0,8))
-        ttk.Label(form,text='2. UŻYTEK ZE SPADAMI (BRUTTO)',style='Panel.TLabel').pack(anchor='w',pady=(5,2))
-        self._paired(form,'Szer. brutto (mm)','gross_w','Wys. brutto (mm)','gross_h')
-        ttk.Label(form,text='3. WYMIAR NETTO PO DOCIĘCIU',style='Panel.TLabel').pack(anchor='w',pady=(10,2))
+        ttk.Label(form,text='2. WYMIAR NETTO PO DOCIĘCIU',style='Panel.TLabel').pack(anchor='w',pady=(5,2))
         self.trim_preset_var=tk.StringVar(value='Niestandardowy')
         ttk.Combobox(form,textvariable=self.trim_preset_var,
                      values=list(TRIM_PRESETS),state='readonly').pack(fill='x',pady=(0,5))
         self.trim_preset_var.trace_add('write',lambda *_:self.apply_trim_preset())
         self._paired(form,'Szer. netto (mm)','trim_w','Wys. netto (mm)','trim_h')
-        self.derived_bleed_var = tk.StringVar(value='Spad wynikowy: 1,5 mm na każdą stronę')
+        self.variables['bleed']=tk.StringVar(value='1.5')
+        self._row(form,'Spad na stronę (mm)',self.variables['bleed'])
+        ttk.Label(form,text='3. BRUTTO = NETTO + 2 × SPAD',style='Panel.TLabel').pack(anchor='w',pady=(10,2))
+        self.auto_gross_var=tk.BooleanVar(value=True)
+        ttk.Checkbutton(form,text='Obliczaj brutto automatycznie',variable=self.auto_gross_var,
+                        command=self.toggle_auto_gross).pack(anchor='w',pady=(0,3))
+        self._paired(form,'Szer. brutto (mm)','gross_w','Wys. brutto (mm)','gross_h')
+        self.derived_bleed_var = tk.StringVar(value='Spad: 1,5 mm z każdej strony')
         ttk.Label(form,textvariable=self.derived_bleed_var,foreground=ACCENT,
                   wraplength=255,justify='left').pack(anchor='w',pady=(3,7))
         self.scale_var=tk.StringVar(value='Kadruj 1:1')
@@ -253,7 +270,8 @@ class App(tk.Tk):
         self.scale_var.trace_add('write',lambda *_:self.schedule_refresh())
         ttk.Label(form,text='Kadruj 1:1 = wytnij środek oryginału bez zmiany wielkości.\nSpad wynika z różnicy brutto i netto.\nInne tryby zachowują dawne skalowanie.',
                   style='Muted.TLabel',wraplength=255,justify='left').pack(anchor='w',pady=(3,6))
-        self._paired(form,'Spad dla innych trybów (mm)','bleed','Odstęp X (mm)','gap_x')
+        self.variables['gap_x']=tk.StringVar()
+        self._row(form,'Odstęp X (mm)',self.variables['gap_x'])
         self._paired(form,'Odstęp Y (mm)','gap_y','Margines X (mm)','margin_x')
         self.variables['margin_y']=tk.StringVar()
         self._row(form,'Margines Y (mm)',self.variables['margin_y'])
@@ -475,6 +493,7 @@ class App(tk.Tk):
             v=tk.StringVar()
             self.variables[key]=v
             field=ttk.Entry(box,textvariable=v,width=12)
+            self.entries[key]=field
             field.pack(fill='x',pady=(2,0))
             field.bind('<KeyRelease>',lambda e:self.schedule_refresh())
             field.bind('<FocusOut>',lambda e:self.schedule_refresh())
@@ -496,6 +515,9 @@ class App(tk.Tk):
                 except Exception:
                     pass
             self.variables[field].set(str(value) if value else '' if field in ('source_w','source_h') else '0')
+        self.auto_source_var.set(s.auto_source)
+        self.auto_gross_var.set(s.auto_gross)
+        self._auto_field_states()
         self._update_derived_bleed()
         self.mode_var.set(s.mode)
         self.scale_var.set(s.scale_mode)
@@ -510,19 +532,49 @@ class App(tk.Tk):
         self._suspend_events=False
         self._render_jobs()
 
+    def _auto_field_states(self):
+        auto_source=self.auto_source_var.get()
+        auto_gross=self.auto_gross_var.get()
+        for key in ('source_w','source_h'):
+            self.entries[key].configure(state='readonly' if auto_source else 'normal')
+        for key in ('gross_w','gross_h'):
+            self.entries[key].configure(state='readonly' if auto_gross else 'normal')
+
+    def toggle_auto_source(self):
+        self._auto_field_states()
+        if self.auto_source_var.get() and self.project.jobs:
+            selection=self.files.selection()
+            idx=int(selection[0]) if selection else 0
+            _,w,h=source_summary(self.project.jobs[idx].path)
+            self.variables['source_w'].set(f'{w:g}')
+            self.variables['source_h'].set(f'{h:g}')
+        self.schedule_refresh()
+
+    def toggle_auto_gross(self):
+        self._auto_field_states()
+        self.schedule_refresh()
+
     def _update_derived_bleed(self):
         try:
-            w = float(self.variables['gross_w'].get().replace(',', '.'))
-            h = float(self.variables['gross_h'].get().replace(',', '.'))
-            nw = float(self.variables['trim_w'].get().replace(',', '.'))
-            nh = float(self.variables['trim_h'].get().replace(',', '.'))
-            bx, by = (w-nw)/2, (h-nh)/2
-            if bx < 0 or by < 0 or abs(bx-by) > .02:
-                self.derived_bleed_var.set('BŁĄD: brutto − netto musi dawać identyczny spad z każdej strony.')
+            nw=float(self.variables['trim_w'].get().replace(',','.'))
+            nh=float(self.variables['trim_h'].get().replace(',','.'))
+            bleed=float(self.variables['bleed'].get().replace(',','.'))
+            if self.auto_gross_var.get():
+                gw=round(nw+2*bleed,3)
+                gh=round(nh+2*bleed,3)
+                if self.variables['gross_w'].get()!=str(gw):self.variables['gross_w'].set(str(gw))
+                if self.variables['gross_h'].get()!=str(gh):self.variables['gross_h'].set(str(gh))
+                self.derived_bleed_var.set(f'Automatycznie: {gw:g} × {gh:g} mm; spad {bleed:g} mm')
             else:
-                self.derived_bleed_var.set(f'Spad wynikowy: {bx:.2f} mm z każdej strony')
+                w=float(self.variables['gross_w'].get().replace(',','.'))
+                h=float(self.variables['gross_h'].get().replace(',','.'))
+                bx,by=(w-nw)/2,(h-nh)/2
+                if bx<0 or by<0 or abs(bx-by)>.02:
+                    self.derived_bleed_var.set('BŁĄD: brutto − netto musi dawać identyczny spad z każdej strony.')
+                else:
+                    self.derived_bleed_var.set(f'Ręczne brutto; spad wynikowy: {bx:.2f} mm na stronę')
         except (ValueError, KeyError):
-            self.derived_bleed_var.set('Wprowadź prawidłowe wymiary brutto i netto.')
+            self.derived_bleed_var.set('Wprowadź prawidłowe wymiary netto i spad.')
 
     def _read_fields(self) -> Settings:
         data={}
@@ -531,8 +583,15 @@ class App(tk.Tk):
             if not value and key in ('source_w','source_h','gross_w','gross_h'):
                 value = '0'
             data[key]=int(value) if key in ('columns','rows') else float(value.replace(',','.'))
-        if self.scale_var.get() == 'Kadruj 1:1' and data['gross_w'] > 0:
-            data['bleed'] = (data['gross_w'] - data['trim_w'])/2
+        if self.auto_source_var.get():
+            data['source_w']=data['source_h']=0
+        if self.auto_gross_var.get():
+            data['gross_w']=round(data['trim_w']+2*data['bleed'],3)
+            data['gross_h']=round(data['trim_h']+2*data['bleed'],3)
+        elif self.scale_var.get() == 'Kadruj 1:1' and data['gross_w'] > 0:
+            data['bleed']=(data['gross_w']-data['trim_w'])/2
+        data['auto_source']=self.auto_source_var.get()
+        data['auto_gross']=self.auto_gross_var.get()
         return Settings(**data,mode=self.mode_var.get(), rotation=self.rot_var.get(),
                         scale_mode=self.scale_var.get(),
                         flip=self.flip_var.get(),crop_marks=self.marks_var.get(),
@@ -565,7 +624,7 @@ class App(tk.Tk):
                 gap = 1.5
             self.variables['trim_w'].set(str(dims[0]))
             self.variables['trim_h'].set(str(dims[1]))
-            self.variables['gross_w'].set(str(round(dims[0] + 2*gap,3)))
+            self.variables['gross_w'].set(str(round(dims[0]+2*gap,3)))
             self.variables['gross_h'].set(str(round(dims[1] + 2*gap,3)))
             self.schedule_refresh()
 
@@ -613,10 +672,35 @@ class App(tk.Tk):
         self.copies_var.set(str(j.copies))
         try:
             count,w,h=source_summary(j.path)
-            self.selected_info.set(f'{Path(j.path).name}\n{count} str. · TrimBox: {w} × {h} mm\nRola: {j.role}'
+            if self.auto_source_var.get():
+                self.variables['source_w'].set(f'{w:g}')
+                self.variables['source_h'].set(f'{h:g}')
+            self.selected_info.set(f'{Path(j.path).name}\n{count} str. · Oryginał: {w} × {h} mm\nKadr X={j.crop_x:+.1f}, Y={j.crop_y:+.1f} mm\nRola: {j.role}'
                                        + (f' (wyjątki: {len(j.page_roles)})' if j.page_roles else ''))
         except Exception as e:
             self.selected_info.set(str(e))
+
+    def open_crop_editor(self):
+        if not self.project.jobs:
+            messagebox.showinfo('Kadr','Dodaj plik PDF.',parent=self)
+            return
+        selection=self.files.selection()
+        idx=int(selection[0]) if selection else 0
+        job=self.project.jobs[idx]
+        try:
+            self.project.settings=self._read_fields()
+            if self.project.settings.scale_mode!='Kadruj 1:1':
+                raise ValueError('Wybierz Kadruj 1:1, aby przesuwać kadr na oryginale.')
+            CropEditor(self,job.path,self.project.settings,job.crop_x,job.crop_y,
+                       lambda x,y:self._apply_file_crop(idx,x,y))
+        except (OSError,ValueError,RuntimeError) as exc:
+            messagebox.showerror('Kadr',str(exc),parent=self)
+
+    def _apply_file_crop(self,idx,x,y):
+        self.project.jobs[idx].crop_x=round(x,1)
+        self.project.jobs[idx].crop_y=round(y,1)
+        self._tree_selection()
+        self.refresh()
 
     def edit_page_roles(self):
         """Assign one file role or page overrides by multi-select/range."""

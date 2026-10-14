@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.1 — 2026-10-14
+
+- Reworked crop UI to source PDF → net dimensions → per-edge bleed → automatically derived gross size.
+- Added practical net size presets for business cards, DL, A7 and ISO A-sizes.
+- Auto-detected original PDF dimensions per selected source while preserving manual source validation for old projects.
+- Added a real-PDF visual crop editor with draggable gross/net guides, 0.1-mm X/Y offsets and one-click reset.
+- Stored independent crop offsets per source PDF in .psimp and validated source margins before printing.
+- Unified manual crop offsets across sheet preview, vector export, single-page export and preflight.
+- Added backwards-compatible auto_source/auto_gross settings and new regression/GUI checks.
+- Kept regular-sheet geometry and the complete TAXI module unchanged.
+
+
 ## 0.4.0 — 2026-10-13
 
 - Added single-sided economic gang-run mode for multiple PDFs with differing requested quantities.

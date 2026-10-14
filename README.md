@@ -1,3 +1,26 @@
+# Impozycjoner Studio 0.4.1 — inteligentny panel Oryginał / Netto / Spad / Brutto
+
+**Nowość 0.4.1: prawdziwe kadrowanie na podglądzie PDF z indywidualnym przesunięciem dla każdego pliku.**
+
+1. Dodaj PDF-y. Zaznaczenie pliku po lewej pokazuje jego **rzeczywistą wielkość oryginału** (automatycznie odczytaną z PDF; program nie zmienia oryginału).
+2. W prawym panelu ustaw **2. Wymiar netto**, np. **93 × 53 mm**. Możesz użyć presetu (wizytówki 93 × 53, 90 × 50, DL, A7, A6, A5, A4).
+3. Wpisz **Spad na stronę**, np. **1,5 mm**. Dzięki włączonemu **Obliczaj brutto automatycznie** otrzymasz **96 × 56 mm brutto**, bez dodatkowego wpisywania. Gdy potrzebujesz innego spadu, zmieniasz jedno pole.
+4. Wybierz **Sposób dopasowania PDF → Kadruj 1:1**. Z lewej zaznacz plik i kliknij **✂ Kadruj wybrany PDF (podgląd)**.
+5. W nowym oknie zobaczysz rzeczywistą stronę PDF i dwie ramki: **turkusowa = brutto**, **pomarańczowa = netto**. Przeciągnij je myszą lub wpisz precyzyjnie X/Y w mm (krok 0,1 mm). **Zapisz kadr**.
+6. Podgląd arkusza, preflight, eksport stron i montaż wektorowy używają tych samych pozycji kadru. Po zapisaniu projektu `.psimp` kadry różnych plików są odtwarzane osobno.
+
+**Przykład:** oryginał **110 × 70**, netto **93 × 53**, spad **1,5** → brutto **96 × 56**. Domyślny kadr jest wyśrodkowany, czyli obcina po 7 mm wokół oryginału. Kadr X=+3 mm przesuwa wybór w prawo na PDF, a Y=−2 mm — w górę; wynikowego PDF **nie skaluje**.
+
+**Przełączniki trybu zaawansowanego:** można wyłączyć automatyczne wykrywanie oryginału, by ręcznie sprawdzać wymiary źródła, albo wyłączyć automatyczne brutto, by ustawiać brutto samodzielnie. Stare projekty zachowują dotychczasowy sposób interpretacji brutto/netto i ręcznej walidacji oryginału. W trybie automatycznym można wczytać wiele PDF-ów o różnych **oryginalnych** rozmiarach.
+
+**Ważne ograniczenie 0.4.1:** *wspólny format netto/brutto i siatka użytków dla całego montażu*; niezależne dla plików są rozmiary źródeł i pozycje kadru. Mieszanie różnych **docelowych fizycznych** wymiarów na jednym arkuszu (np. 90×50 obok 70×40) będzie osobną wersją z nowym silnikiem rozmieszczania. Kadrowanie wizualne bazuje na pierwszej stronie wybranego PDF-a; ustawiony offset działa na wszystkie strony tego pliku. Zakładka TAXI jest nietknięta.
+
+**Bezpieczeństwo:** przy braku miejsca na cały użytek ze spadami program odrzuca kadrowanie — nie generuje sztucznej grafiki ani rozciągniętych elementów. Kontury i tekst PDF pozostają wektorowe. Sprawdź pierwszy wydruk próbny.
+
+[Demo oryginału 110 × 70](examples/crop_041_source_110x70.pdf) · [wynik 96 × 56](examples/crop_041_result_96x56.pdf) · [montaż SRA3](examples/crop_041_sheet_SRA3.pdf) · [projekt `.psimp`](examples/crop_041_project.psimp).
+
+---
+
 # Impozycjoner Studio 0.4.0 — montaż ekonomiczny wielu projektów
 
 **Nowość 0.4.0:** nowy tryb **Ekonomiczny** miesza wiele osobnych PDF-ów i wielostronicowych plików na wspólnym arkuszu, przy uwzględnieniu nakładu każdego wzoru. Każda niepominięta strona wielostronicowego PDF-a otrzymuje osobno podaną liczbę sztuk (nakład pliku). Przykładowo: A = 700 szt., B = 300 szt., w obu plikach po jednej stronie. Program przydzieli użytki do kolejnych arkuszy w proporcjach zamówienia, bez wymuszonej nadprodukcji.

@@ -1,4 +1,4 @@
-"""Impozycjoner Studio 0.4.0 - vector PDF imposition engine.
+"""Impozycjoner Studio 0.4.1 - vector PDF imposition engine.
 
 Uses PDF form XObjects via PyMuPDF. No source pages are rasterized during export.
 Units exposed to the operator are millimetres; PyMuPDF operates in points.
@@ -56,6 +56,8 @@ class Job:
     copies: int = 1
     role: str = ROLE_AUTO
     page_roles: dict[str, str] = field(default_factory=dict)  # 1-based page numbers
+    crop_x: float = 0.0  # mm: desired crop-centre displacement in source visual X
+    crop_y: float = 0.0  # mm: desired crop-centre displacement in source visual Y
 
     def role_for(self, zero_based_page: int) -> str:
         return self.page_roles.get(str(zero_based_page + 1), self.role)
@@ -72,6 +74,8 @@ class Settings:
     source_h: float = 0
     gross_w: float = 0   # 0 = legacy trim + 2 * bleed
     gross_h: float = 0
+    auto_gross: bool = False  # legacy projects keep manually entered gross
+    auto_source: bool = False  # legacy projects keep manually entered source dimensions
     margin_x: float = 6
     margin_y: float = 6
     gap_x: float = 5
@@ -137,6 +141,8 @@ class Geometry:
 
 def gross_dimensions(s: Settings) -> tuple[float, float]:
     """Physical size of a single imposed use, including symmetric bleed."""
+    if s.scale_mode == 'Kadruj 1:1' and s.auto_gross:
+        return s.trim_w + 2*s.bleed, s.trim_h + 2*s.bleed
     if s.scale_mode == 'Kadruj 1:1' and s.gross_w > 0 and s.gross_h > 0:
         return s.gross_w, s.gross_h
     return s.trim_w + 2*s.bleed, s.trim_h + 2*s.bleed
@@ -144,6 +150,8 @@ def gross_dimensions(s: Settings) -> tuple[float, float]:
 
 def bleed_for(s: Settings) -> float:
     """For three-size crop workflow, derive bleed from gross minus net."""
+    if s.scale_mode == 'Kadruj 1:1' and s.auto_gross:
+        return s.bleed
     if s.scale_mode == 'Kadruj 1:1' and s.gross_w > 0 and s.gross_h > 0:
         return (s.gross_w-s.trim_w)/2
     return s.bleed
@@ -161,7 +169,7 @@ def validate(settings: Settings):
         raise ValueError('Wprowadź oba wymiary oryginału PDF albo pozostaw oba jako automatyczne.')
     if (settings.gross_w == 0) != (settings.gross_h == 0):
         raise ValueError('Wprowadź szerokość i wysokość użytku ze spadami.')
-    if settings.scale_mode == 'Kadruj 1:1' and settings.gross_w > 0:
+    if settings.scale_mode == 'Kadruj 1:1' and not settings.auto_gross and settings.gross_w > 0:
         bx = (settings.gross_w - settings.trim_w)/2
         by = (settings.gross_h - settings.trim_h)/2
         if bx < -.001 or by < -.001:
@@ -820,8 +828,32 @@ def _inverse_rotate_point(x: float, y: float, width: float,
     raise ValueError('Obrót musi być wielokrotnością 90°')
 
 
+def crop_offsets(jobs: list[Job]) -> dict[str, tuple[float, float]]:
+    """Shared per-path crop positions, including safety for duplicate source paths."""
+    offsets = {}
+    for job in jobs:
+        x, y = float(job.crop_x), float(job.crop_y)
+        if not isfinite(x) or not isfinite(y):
+            raise ValueError(f'{Path(job.path).name}: niepoprawne przesunięcie kadru')
+        if abs(x)>10000 or abs(y)>10000:
+            raise ValueError(f'{Path(job.path).name}: przesunięcie kadru poza limitem')
+        if job.path in offsets and offsets[job.path] != (x, y):
+            raise ValueError(f'{Path(job.path).name}: ten sam PDF ma różne kadry w kilku pozycjach listy')
+        offsets[job.path] = (x, y)
+    return offsets
+
+
+def crop_centre(source_w: float, source_h: float, gross_w: float, gross_h: float,
+                x: float, y: float) -> None:
+    """Reject missing real bleed caused by moving the crop out of source boundaries."""
+    if abs(x) > (source_w-gross_w)/2 + .02 or abs(y) > (source_h-gross_h)/2 + .02:
+        raise ValueError(f'Kadr + spad {gross_w:g} × {gross_h:g} mm wychodzi poza oryginał '
+                         f'{source_w:.2f} × {source_h:.2f} mm przy X={x:g}, Y={y:g} mm.')
+
+
 def _place_pdf(target: fitz.Page, p: SourcePage, slot: Slot, s: Settings,
-               sources: dict[str, fitz.Document]):
+               sources: dict[str, fitz.Document],
+               offsets: dict[str, tuple[float, float]] | None = None):
     original = sources[p.path][p.index]
     trim = fitz.Rect(original.trimbox)
     media = media_rect(original)
@@ -829,7 +861,7 @@ def _place_pdf(target: fitz.Page, p: SourcePage, slot: Slot, s: Settings,
     apparent_w, apparent_h = ((mm(trim.height), mm(trim.width))
                               if original_angle in (90, 270)
                               else (mm(trim.width), mm(trim.height)))
-    if s.scale_mode == 'Kadruj 1:1' and s.source_w > 0:
+    if s.scale_mode == 'Kadruj 1:1' and not s.auto_source and s.source_w > 0:
         if abs(apparent_w - s.source_w) > .5 or abs(apparent_h - s.source_h) > .5:
             raise ValueError(
                 f'{Path(p.path).name}, strona {p.index+1}: rzeczywisty oryginał '
@@ -852,7 +884,7 @@ def _place_pdf(target: fitz.Page, p: SourcePage, slot: Slot, s: Settings,
         target_w = pt(s.trim_h if original_angle in (90, 270) else s.trim_w)
         target_h = pt(s.trim_w if original_angle in (90, 270) else s.trim_h)
         gross_w, gross_h = gross_dimensions(s)
-        if s.gross_w > 0 and (apparent_w + .02 < gross_w or apparent_h + .02 < gross_h):
+        if apparent_w + .02 < gross_w or apparent_h + .02 < gross_h:
             raise ValueError(
                 f'{Path(p.path).name}, strona {p.index+1}: oryginał jest za mały '
                 f'na użytek ze spadami {gross_w:g} × {gross_h:g} mm. '
@@ -861,8 +893,14 @@ def _place_pdf(target: fitz.Page, p: SourcePage, slot: Slot, s: Settings,
             raise ValueError(
                 f'{Path(p.path).name}, strona {p.index+1}: oryginał jest za mały '
                 f'na kadrowanie 1:1 do {s.trim_w:g} × {s.trim_h:g} mm.')
-        cx = (trim.x0 + trim.x1) / 2
-        cy = (trim.y0 + trim.y1) / 2
+        shift_x, shift_y = (offsets or {}).get(p.path, (0.0, 0.0))
+        crop_centre(apparent_w, apparent_h, gross_w, gross_h, shift_x, shift_y)
+        source_w, source_h = mm(trim.width), mm(trim.height)
+        new_x, new_y = _inverse_rotate_point(
+            apparent_w/2 + shift_x, apparent_h/2 + shift_y,
+            source_w, source_h, original_angle)
+        cx = trim.x0 + pt(new_x)
+        cy = trim.y0 + pt(new_y)
         trim = fitz.Rect(cx-target_w/2, cy-target_h/2, cx+target_w/2, cy+target_h/2)
 
     bleedbox = fitz.Rect(original.bleedbox)
@@ -928,12 +966,13 @@ def _place_pdf(target: fitz.Page, p: SourcePage, slot: Slot, s: Settings,
 
 
 def render_side(side: SheetSide, sources: dict[str, fitz.Document], s: Settings,
-                destination: fitz.Document | None = None) -> fitz.Document:
+                destination: fitz.Document | None = None,
+                offsets: dict[str, tuple[float, float]] | None = None) -> fitz.Document:
     out = destination if destination is not None else fitz.open()
     target = out.new_page(width=pt(s.sheet_w), height=pt(s.sheet_h))
     for item in side.placements:
         if item.source is not None:
-            _place_pdf(target, item.source, item.slot, s, sources)
+            _place_pdf(target, item.source, item.slot, s, sources, offsets)
         if s.crop_marks and item.source is not None:
             _draw_marks(target, item.slot, s)
         if s.show_page_labels:
@@ -967,6 +1006,7 @@ def export_pdf(project: Project, output: str):
     if not project.jobs:
         raise ValueError('Dodaj co najmniej jeden plik PDF')
     sources = open_sources(project.jobs)
+    offsets = crop_offsets(project.jobs)
     out = fitz.open()
     try:
         if project.settings.mode == 'Ekonomiczny':
@@ -976,12 +1016,12 @@ def export_pdf(project: Project, output: str):
                                  f'brakuje {audit.shortage}. Przywróć przypisania lub zamień użytki.')
         count = 0
         for side in project_sides(project, sources):
-            render_side(side, sources, project.settings, out)
+            render_side(side, sources, project.settings, out, offsets)
             count += 1
         if count == 0:
             raise ValueError('Brak stron do montażu')
         out.set_metadata({'title':'Impozycjoner Studio - montaż PDF',
-                          'creator':'Impozycjoner Studio 0.4.0'})
+                          'creator':'Impozycjoner Studio 0.4.1'})
         Path(output).parent.mkdir(parents=True, exist_ok=True)
         out.save(output, garbage=3, deflate=True)
         return count
@@ -1002,6 +1042,7 @@ def export_pages(project: Project, output: str) -> int:
         raise ValueError('Dodaj co najmniej jeden plik PDF')
     s = project.settings
     sources = open_sources(project.jobs)
+    offsets = crop_offsets(project.jobs)
     out = fitz.open()
     try:
         for source in _page_refs(project.jobs, sources):
@@ -1009,7 +1050,7 @@ def export_pages(project: Project, output: str) -> int:
             h = s.trim_h + 2*bleed_for(s)
             page = out.new_page(width=pt(w), height=pt(h))
             slot = Slot(bleed_for(s), bleed_for(s), s.trim_w, s.trim_h, 0, 0, 0)
-            _place_pdf(page, source, slot, s, sources)
+            _place_pdf(page, source, slot, s, sources, offsets)
             if bleed_for(s):
                 page.set_trimbox(fitz.Rect(pt(bleed_for(s)), pt(bleed_for(s)),
                                            pt(bleed_for(s)+s.trim_w), pt(bleed_for(s)+s.trim_h)))
@@ -1017,7 +1058,7 @@ def export_pages(project: Project, output: str) -> int:
         if len(out) == 0:
             raise ValueError('Brak stron do eksportu')
         out.set_metadata({'title':'Impozycjoner Studio - strony w formacie docelowym',
-                          'creator':'Impozycjoner Studio 0.4.0'})
+                          'creator':'Impozycjoner Studio 0.4.1'})
         Path(output).parent.mkdir(parents=True, exist_ok=True)
         out.save(output, garbage=3, deflate=True)
         return len(out)
@@ -1032,6 +1073,7 @@ def preview(project: Project, pixels: int = 1200, index: int = 0):
     from PIL import Image
     validate(project.settings)
     sources = open_sources(project.jobs)
+    offsets = crop_offsets(project.jobs)
     try:
         sides = project_sides(project, sources)
         selected = next(islice(sides, index, index+1), None)
@@ -1040,7 +1082,7 @@ def preview(project: Project, pixels: int = 1200, index: int = 0):
             if selected is None:
                 out.new_page(width=pt(project.settings.sheet_w), height=pt(project.settings.sheet_h))
             else:
-                render_side(selected, sources, project.settings, out)
+                render_side(selected, sources, project.settings, out, offsets)
             page = out[0]
             zoom = min(pixels/page.rect.width, pixels/page.rect.height, 2)
             pix = page.get_pixmap(matrix=fitz.Matrix(zoom,zoom), alpha=False)
@@ -1057,6 +1099,7 @@ def editor_preview(project: Project, pixels: int = 1200, index: int = 0):
     from PIL import Image
     validate(project.settings)
     sources = open_sources(project.jobs)
+    offsets = crop_offsets(project.jobs)
     try:
         selected = next(islice(plan_sides(project.jobs, sources, project.settings), index, index+1), None)
         if selected is None:
@@ -1064,7 +1107,7 @@ def editor_preview(project: Project, pixels: int = 1200, index: int = 0):
         selected = calibrate_verso(apply_overrides(selected, project, sources, full_grid=True), project.settings)
         out = fitz.open()
         try:
-            render_side(selected, sources, project.settings, out)
+            render_side(selected, sources, project.settings, out, offsets)
             page = out[0]
             zoom = min(pixels/page.rect.width, pixels/page.rect.height, 2)
             pix = page.get_pixmap(matrix=fitz.Matrix(zoom,zoom),alpha=False)
@@ -1086,7 +1129,8 @@ def save_project(project: Project, path: str):
         except ValueError:
             file_path = str(f)
         jobs.append({'path':file_path,'copies':j.copies,
-                     'role':j.role,'page_roles':j.page_roles})
+                     'role':j.role,'page_roles':j.page_roles,
+                     'crop_x':j.crop_x,'crop_y':j.crop_y})
     relative_overrides = {}
     for key, entry in project.overrides.items():
         copied = dict(entry)
@@ -1111,7 +1155,8 @@ def load_project(path: str) -> Project:
     settings = Settings(**data['settings'])
     jobs = [Job(path=str((base / j['path']).resolve()) if not Path(j['path']).is_absolute()
                 else str(Path(j['path']).resolve()), copies=int(j['copies']),
-                role=j.get('role', ROLE_AUTO), page_roles=dict(j.get('page_roles', {})))
+                role=j.get('role', ROLE_AUTO), page_roles=dict(j.get('page_roles', {})),
+                crop_x=float(j.get('crop_x', 0)), crop_y=float(j.get('crop_y', 0)))
             for j in data.get('jobs', [])]
     overrides = data.get('overrides', {})
     if not isinstance(overrides, dict):

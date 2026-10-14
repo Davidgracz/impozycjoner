@@ -11,7 +11,7 @@ import json
 
 import pymupdf as fitz
 
-from engine import Job, Project, Settings, mm, media_rect, open_sources, scaling_layout, validate, bleed_for, gross_dimensions, validate_job_roles, _duplex_pairs, project_sides, overlapping_uses, plan_sides, ROLE_AUTO, ROLE_SKIP, economic_report
+from engine import Job, Project, Settings, mm, media_rect, open_sources, scaling_layout, validate, bleed_for, gross_dimensions, validate_job_roles, _duplex_pairs, project_sides, overlapping_uses, plan_sides, crop_offsets, crop_centre, ROLE_AUTO, ROLE_SKIP, economic_report
 
 
 @dataclass(frozen=True)
@@ -133,6 +133,12 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
         raise ValueError('Dodaj plik PDF przed kontrolą preflight')
     docs = open_sources(project.jobs)
     s = project.settings
+    try:
+        offsets = crop_offsets(project.jobs)
+    except ValueError:
+        for document in docs.values():
+            document.close()
+        raise
     findings: list[Finding] = []
     image_issues: list[ImageIssue] = []
     format_ranges: list[FormatRange] = []
@@ -183,26 +189,31 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
                     label('BŁĄD', 'FORMAT',
                           f'TrimBox: {width:.2f} × {height:.2f} mm; docelowo: {s.trim_w:g} × {s.trim_h:g} mm. '
                           'Wybierz tryb skalowania lub dopasuj rozmiar.')
-                if s.scale_mode == 'Kadruj 1:1' and s.source_w > 0 and (
+                if s.scale_mode == 'Kadruj 1:1' and not s.auto_source and s.source_w > 0 and (
                     abs(width-s.source_w) > .5 or abs(height-s.source_h) > .5
                 ):
                     label('BŁĄD', 'ORYGINAL',
                           f'Oryginał PDF ma {width:.2f} × {height:.2f} mm, a ustawiono '
                           f'{s.source_w:g} × {s.source_h:g} mm. Kadrowanie 1:1 wymaga zgodności.')
-                if s.scale_mode == 'Kadruj 1:1' and s.gross_w > 0:
+                if s.scale_mode == 'Kadruj 1:1':
                     gw, gh = gross_dimensions(s)
                     if width + .02 < gw or height + .02 < gh:
                         label('BŁĄD', 'BRUTTO',
                               f'Oryginał {width:.2f} × {height:.2f} mm jest za mały '
                               f'na użytek ze spadami {gw:g} × {gh:g} mm.')
                 if s.scale_mode == 'Kadruj 1:1':
+                    try:
+                        x, y = offsets.get(path, (0.0, 0.0))
+                        crop_centre(width, height, *gross_dimensions(s), x, y)
+                    except ValueError as exc:
+                        label('BŁĄD', 'POZYCJA_KADRU', str(exc))
                     if width + .02 < s.trim_w or height + .02 < s.trim_h:
                         label('BŁĄD', 'KADROWANIE',
                               f'Oryginał {width:.2f} × {height:.2f} mm jest za mały '
                               f'na format netto {s.trim_w:g} × {s.trim_h:g} mm w skali 1:1.')
                     else:
                         label('INFO', 'KADROWANIE',
-                              f'Centralne kadrowanie 1:1: z oryginału {width:.2f} × {height:.2f} mm '
+                              f'Kadrowanie 1:1 (X={offsets.get(path,(0,0))[0]:+.1f}, Y={offsets.get(path,(0,0))[1]:+.1f} mm): z oryginału {width:.2f} × {height:.2f} mm '
                               f'pozostanie użytek {gross_dimensions(s)[0]:g} × {gross_dimensions(s)[1]:g} mm, netto {s.trim_w:g} × {s.trim_h:g} mm, '
                               f'z dodatkowym spadem {bleed_for(s):g} mm na stronę.')
                     factor, dx, dy = 1.0, (s.trim_w-width)/2, (s.trim_h-height)/2

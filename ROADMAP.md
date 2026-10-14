@@ -62,3 +62,7 @@ Odniesienie: https://www.impozycjoner.pl/dokumentacja/v4
 - [x] 0.3.7: Print-and-measure duplex registration sheet and guided front-view correction calculator.
 
 - [x] 0.4.0: ekonomiczne mieszanie różnych nakładów o wspólnej geometrii, preflight ilości, raport CSV i przykład SRA3.
+
+- [x] 0.4.1: intelligent original → net → bleed → gross panel, per-PDF original auto-detection, practical format presets and draggable crop preview with safe 0.1-mm per-file X/Y offsets.
+- [ ] 0.4.2: *different physical target* sizes for each PDF on the same sheet (variable rectangles, mixed-format layout, new cutting constraints); not part of 0.4.1.
+- [ ] Advanced asymmetric bleed (left/right/top/bottom) and fully separate per-PDF net sizes require updating the placement model and crop-mark geometry.
