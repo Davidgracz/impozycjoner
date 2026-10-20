@@ -20,7 +20,7 @@ from duplex_test_sheet import create_duplex_test_pdf, correction_from_front_erro
 from economic_csv import write_economic_csv
 from crop_editor import CropEditor
 from ui_icons import draw as draw_icon
-from engine import RUN_MODES, RUN_ALL, gutter_notes
+from engine import RUN_MODES, RUN_ALL, gutter_notes, FILL_GROSS
 
 # Parametry znaczników (okna „definicji” w Imp4) trzymane poza polami wstęgi.
 MARK_PARAMS = ('mark_offset', 'mark_length', 'mark_width_pt', 'gutter_v', 'gutter_h', 'gutter_marks',
@@ -392,12 +392,16 @@ class App(tk.Tk):
         self._spin(g, 'gross_h', 2, 0, 'Wys.:', width=7)
         g = self._group(tab, 'Sposób dopasowania PDF')
         self.scale_var = tk.StringVar(value='Kadruj 1:1')
-        ttk.Combobox(g, textvariable=self.scale_var, values=('Kadruj 1:1', 'Bez skalowania', 'Dopasuj', 'Wypełnij'),
-                     state='readonly', width=16).pack(anchor='w')
+        ttk.Combobox(g, textvariable=self.scale_var,
+                     values=('Kadruj 1:1', 'Bez skalowania', 'Dopasuj', 'Wypełnij', FILL_GROSS),
+                     state='readonly', width=18).grid(row=0, column=0, sticky='w')
         self.scale_var.trace_add('write', lambda *_: self.schedule_refresh())
+        self.white_trim_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(g, text='przytnij białe marginesy źródła', variable=self.white_trim_var,
+                        command=self.schedule_refresh).grid(row=0, column=1, sticky='w', padx=(8, 0))
         ttk.Label(g, text='Kadruj 1:1 = wytnij środek oryginału bez skalowania.\n'
-                  'Netto ustawiasz w „Montaż akcydensów”.', style='Caption.TLabel',
-                  justify='left').pack(anchor='w', pady=(3, 0))
+                  'Wypełnij ze spadem = grafika pokrywa netto + spad (np. A4 → A6 + 1,5 mm), nadmiar docięty.',
+                  style='Caption.TLabel', justify='left').grid(row=1, column=0, columnspan=2, sticky='w', pady=(3, 0))
         g = self._group(tab, 'Kadr wybranego PDF')
         ttk.Button(g, text='✂  Kadruj wybrany PDF\n(podgląd, przesunięcie X/Y)',
                    command=self.open_crop_editor).pack(fill='both', expand=True)
@@ -868,6 +872,7 @@ class App(tk.Tk):
         self.labels_var.set(s.show_page_labels)
         self.gutter_var.set(s.gutter_on)
         self.trimcrop_var.set(s.trim_crop)
+        self.white_trim_var.set(s.white_trim)
         self.mark_params = {key: getattr(s, key) for key in MARK_PARAMS}
         self._suspend_events=False
         self._render_jobs()
@@ -936,6 +941,7 @@ class App(tk.Tk):
                         flip=self.flip_var.get(),crop_marks=self.marks_var.get(),
                         show_page_labels=self.labels_var.get(),
                         gutter_on=self.gutter_var.get(), trim_crop=self.trimcrop_var.get(),
+                        white_trim=self.white_trim_var.get(),
                         **self.mark_params)
 
     def apply_preset(self):

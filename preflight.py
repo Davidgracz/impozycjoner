@@ -11,7 +11,7 @@ import json
 
 import pymupdf as fitz
 
-from engine import Job, Project, Settings, mm, media_rect, open_sources, scaling_layout, validate, bleed_for, gross_dimensions, validate_job_roles, _duplex_pairs, project_sides, overlapping_uses, plan_sides, crop_offsets, crop_centre, ROLE_AUTO, ROLE_SKIP, economic_report, gutter_notes
+from engine import Job, Project, Settings, mm, media_rect, open_sources, scaling_layout, validate, bleed_for, gross_dimensions, validate_job_roles, _duplex_pairs, project_sides, overlapping_uses, plan_sides, crop_offsets, crop_centre, ROLE_AUTO, ROLE_SKIP, economic_report, gutter_notes, FILL_GROSS
 
 
 @dataclass(frozen=True)
@@ -220,8 +220,23 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
                               f'z dodatkowym spadem {bleed_for(s):g} mm na stronę.')
                     factor, dx, dy = 1.0, (s.trim_w-width)/2, (s.trim_h-height)/2
                 else:
-                    factor, dx, dy = scaling_layout(width, height, s.trim_w, s.trim_h,
-                                                    s.scale_mode)
+                    if s.white_trim:
+                        import whitecrop
+                        content = whitecrop.content_rect(page, fitz.Rect(trim), s.white_level)
+                        cw, ch = mm(content.width), mm(content.height)
+                        if page.rotation in (90, 270):
+                            cw, ch = ch, cw
+                        if abs(cw - width) > .2 or abs(ch - height) > .2:
+                            label('INFO', 'BIALE_MARGINESY',
+                                  f'Białe marginesy przycięte: grafika {cw:.2f} × {ch:.2f} mm '
+                                  f'z TrimBox {width:.2f} × {height:.2f} mm.')
+                        width, height = cw, ch
+                    if s.scale_mode == FILL_GROSS:
+                        gw, gh = s.trim_w + 2*bleed_for(s), s.trim_h + 2*bleed_for(s)
+                        factor, dx, dy = scaling_layout(width, height, gw, gh, s.scale_mode)
+                    else:
+                        factor, dx, dy = scaling_layout(width, height, s.trim_w, s.trim_h,
+                                                        s.scale_mode)
                 if s.scale_mode not in ('Bez skalowania', 'Kadruj 1:1'):
                     # Positive offsets = white border; negative = trimmed content.
                     extra = (f'białe marginesy do {max(dx,dy):.2f} mm' if dx > .2 or dy > .2
@@ -239,7 +254,9 @@ def inspect_project(project: Project, *, min_dpi: int = 200,
                 if s.scale_mode == 'Kadruj 1:1':
                     distances = ((width-s.trim_w)/2, (height-s.trim_h)/2,
                                  (width-s.trim_w)/2, (height-s.trim_h)/2)
-                if bleed_for(s) > 0 and min(distances)*factor < bleed_for(s) - .15:
+                if s.scale_mode == FILL_GROSS:
+                    label('INFO', 'SPAD', f'Spad {bleed_for(s):g} mm powstaje z grafiki (Wypełnij ze spadem).')
+                elif bleed_for(s) > 0 and min(distances)*factor < bleed_for(s) - .15:
                     label('UWAGA', 'SPAD',
                           'Dostępny obszar poza TrimBox (lewo/góra/prawo/dół): '
                           + '/'.join(f'{max(0,v*factor):.2f}' for v in distances) +

@@ -126,6 +126,73 @@ def even_odd(count: int) -> tuple[list[int], list[int]]:
     return list(range(1, count + 1, 2)), list(range(2, count + 1, 2))
 
 
+def bleed_pieces(width: float, height: float, bleed: tuple[float, float, float, float],
+                 strip: tuple[float, float, float, float],
+                 offset: tuple[float, float, float, float]):
+    """Kawałki spadu z narzędzia „Dodaj spady” (wartości L, P, G, D; jednostka dowolna, wspólna).
+
+    E1: dla każdej krawędzi podaje się dodawany spad, szerokość wycinka i odległość wycinka od krawędzi
+    PDF (MediaBox). REA (metadane wywołań): fragmenty tej samej strony są przycinane i rozciągane do
+    zadanych wymiarów. H-27: wycinek [odległość, odległość + szerokość] jest rozciągany na pas od nowej
+    krawędzi (z dodanym spadem) do początku wycinka — pas zakrywa też biały margines strony; narożniki
+    powstają z narożnego kwadratu wycinków. Zwraca listę (cel, źródło) prostokątów (x0, y0, x1, y1);
+    cel we współrzędnych nowej strony (lewy górny róg = 0), źródło we współrzędnych strony wejściowej.
+    """
+    names = ('lewy', 'prawy', 'górny', 'dolny')
+    for values, what in ((bleed, 'Spad'), (strip, 'Szerokość wycinka'), (offset, 'Odległość wycinka')):
+        if len(values) != 4 or any(v < 0 for v in values):
+            raise ValueError(f'{what}: podaj 4 wartości ≥ 0 (lewy, prawy, górny, dolny)')
+    for i in range(4):
+        if (bleed[i] > 0 or offset[i] > 0) and strip[i] <= 0:
+            raise ValueError(f'Krawędź {names[i]}: szerokość wycinka musi być większa od zera')
+    l, r, t, b = bleed
+    sl, sr, st, sb = strip
+    ol, or_, ot, ob = offset
+    W, H = width, height
+    if ol + sl + or_ + sr > W or ot + st + ob + sb > H:
+        raise ValueError('Wycinki zachodzą na siebie: zmniejsz szerokość lub odległość wycinków')
+    # kolumny i wiersze: (cel od, cel do, źródło od, źródło do)
+    cols = [(0, l + ol, ol, ol + sl),                          # lewy pas
+            (l + ol, l + W - or_, ol, W - or_),                # środek
+            (l + W - or_, l + W + r, W - or_ - sr, W - or_)]   # prawy pas
+    rows = [(0, t + ot, ot, ot + st),
+            (t + ot, t + H - ob, ot, H - ob),
+            (t + H - ob, t + H + b, H - ob - sb, H - ob)]
+    pieces = []
+    for ci, (cx0, cx1, sx0, sx1) in enumerate(cols):
+        for ri, (cy0, cy1, sy0, sy1) in enumerate(rows):
+            if ci == 1 and ri == 1:
+                continue  # środek strony zostaje bez zmian
+            if cx1 - cx0 <= 1e-9 or cy1 - cy0 <= 1e-9:
+                continue
+            pieces.append(((cx0, cy0, cx1, cy1), (sx0, sy0, sx1, sy1)))
+    return pieces
+
+
+def scale_factors(box_w: float, box_h: float, width: float | None, height: float | None,
+                  percent: bool = False) -> tuple[float, float]:
+    """Skale X/Y narzędzia „Skaluj strony”: do wymiarów wprost albo procentowo.
+
+    E1: każdy wymiar jest „określony” albo „proporcjonalny” (None = proporcjonalny do drugiego).
+    """
+    if width is None and height is None:
+        raise ValueError('Podaj co najmniej jeden wymiar (drugi może być proporcjonalny)')
+    for value in (width, height):
+        if value is not None and value <= 0:
+            raise ValueError('Wymiar i procent muszą być większe od zera')
+    if percent:
+        sx = width / 100 if width is not None else None
+        sy = height / 100 if height is not None else None
+    else:
+        sx = width / box_w if width is not None else None
+        sy = height / box_h if height is not None else None
+    sx = sy if sx is None else sx
+    sy = sx if sy is None else sy
+    if sx > 20 or sy > 20:
+        raise ValueError('Skala większa niż 2000% — sprawdź wpisane wymiary')
+    return sx, sy
+
+
 def rotation_for(page: int, current: int, angle: int, even_extra_180: bool = False) -> int:
     """Obrót strony po narzędziu „Obróć strony” (H-18: kąt dodaje się do bieżącego /Rotate)."""
     if angle not in (0, 90, 180, 270) or current % 90:

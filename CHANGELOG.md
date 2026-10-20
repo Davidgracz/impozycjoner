@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Scaling and cropping: new fit mode „Wypełnij ze spadem” (artwork covers net + bleed, e.g. A4 → A6 + 1.5 mm, overflow
+  cropped, no white bleed) and „przytnij białe marginesy źródła” (detects a white frame around the artwork and uses
+  the content area; `whitecrop.py`). Works in imposition, single-page export and preflight.
+- „Programy dodatkowe”: „Dodaj spady” as in Imp4 (per edge: added bleed, strip width, strip distance from the
+  MediaBox edge; stretched strips over or under the page) and „Skaluj strony” (mm or %, proportional, TrimBox or
+  MediaBox, optional centring page).
+- Built-in job template „Ulotka A6 + 1,5 mm z A4 (bez białych marginesów) — SRA3”; job templates accept the optional
+  `white_trim` field (older templates still load).
+- `docs/imp4-wersja-finalna.md` §5a: how the final Imp4 scales, crops and adds bleed (UI texts + REA call metadata).
+
 - Marks from the final Imp4: centre cut gutter („Wycinka”, W) — vertical/horizontal width, applied only for an even
   number of columns/rows (otherwise a preflight and status-bar note), axis mark with length or across the print area;
   extra TrimBox hair crop („Docięcie TrimBox”, T) — left on even pages, right on odd; cut-mark offset, length and
