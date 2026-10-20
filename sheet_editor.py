@@ -35,7 +35,7 @@ class SheetEditor(tk.Toplevel):
         self.geometry('1250x810')
         self.minsize(930, 630)
         self.transient(app)
-        self.configure(background='#141923')
+        self.configure(background='#eef1f5')
 
         top = ttk.Frame(self, padding=10)
         top.pack(fill='x')
@@ -44,7 +44,7 @@ class SheetEditor(tk.Toplevel):
         ttk.Button(top, text='◀ poprzednia strona', command=lambda: self.change_side(-1)).pack(side='left')
         ttk.Button(top, text='następna strona ▶', command=lambda: self.change_side(1)).pack(side='left', padx=5)
         self.info = tk.StringVar()
-        ttk.Label(top, textvariable=self.info, foreground='#3ed6d0').pack(side='right')
+        ttk.Label(top, textvariable=self.info, foreground='#2f6fc2').pack(side='right')
 
         content = ttk.PanedWindow(self, orient='horizontal')
         content.pack(fill='both', expand=True, padx=10, pady=6)
@@ -54,7 +54,7 @@ class SheetEditor(tk.Toplevel):
         content.add(right, weight=2)
         ttk.Label(left, text='Arkusz — kliknij, przeciągnij lub użyj strzałek',
                   font=('Segoe UI', 10, 'bold')).pack(anchor='w', pady=(0, 7))
-        self.canvas = tk.Canvas(left, bg='#394455', highlightthickness=0, cursor='crosshair')
+        self.canvas = tk.Canvas(left, bg='#dde2e8', highlightthickness=0, cursor='crosshair')
         self.canvas.pack(fill='both', expand=True)
         self.canvas.bind('<Configure>', lambda event: self.draw())
         self.canvas.bind('<ButtonPress-1>', self.on_canvas_down)
@@ -70,7 +70,7 @@ class SheetEditor(tk.Toplevel):
         ttk.Label(left, text=('Przeciągnij stronę z listy na arkusz: PRZYPISZ. '
                    'Przeciągnij użytek na inny: ZAMIEŃ. '
                    'Przeciągnij w wolne miejsce lub z Shift: PRZESUŃ (0,1 mm).'),
-                  foreground='#a7b4c8', wraplength=780).pack(anchor='w', pady=(5, 0))
+                  foreground='#66768a', wraplength=780).pack(anchor='w', pady=(5, 0))
 
         ttk.Label(right, text='STRONY ŹRÓDŁOWE', font=('Segoe UI', 11, 'bold')).pack(anchor='w')
         treebar = ttk.Frame(right); treebar.pack(fill='both', expand=True, pady=(6, 11))
@@ -123,7 +123,7 @@ class SheetEditor(tk.Toplevel):
         ttk.Entry(swaprow, textvariable=self.swap_with, width=5).pack(side='left', padx=7)
         ttk.Button(swaprow, text='Zamień', command=lambda: self.apply('swap')).pack(side='left')
         self.status = tk.StringVar(value='Przeciągaj lub użyj strzałek dla przesunięcia co 0,1 mm.')
-        ttk.Label(right, textvariable=self.status, foreground='#a7b4c8',
+        ttk.Label(right, textvariable=self.status, foreground='#66768a',
                   wraplength=285).pack(anchor='w', pady=(14, 5))
         ttk.Button(right, text='Zamknij — zapisz projekt .psimp', command=self.destroy).pack(side='bottom', fill='x', pady=6)
         self.refresh_side()

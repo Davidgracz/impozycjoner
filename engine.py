@@ -989,7 +989,10 @@ def open_sources(jobs: list[Job]) -> dict[str, fitz.Document]:
             if job.path not in sources:
                 if not Path(job.path).is_file():
                     raise FileNotFoundError(f'Brak pliku: {job.path}')
-                doc = fitz.open(job.path)
+                try:
+                    doc = fitz.open(job.path)
+                except Exception as exc:  # FileDataError itp. — plik nie jest PDF albo jest uszkodzony
+                    raise ValueError(f'Plik nie jest poprawnym PDF albo jest uszkodzony: {job.path}') from exc
                 if not doc.is_pdf or doc.needs_pass or len(doc) == 0:
                     doc.close()
                     raise ValueError(f'Nieobsługiwany lub zabezpieczony PDF: {job.path}')
@@ -1001,7 +1004,44 @@ def open_sources(jobs: list[Job]) -> dict[str, fitz.Document]:
         raise
 
 
-def export_pdf(project: Project, output: str):
+# „Wykonaj impozycję” w Impozycjonerze 4: wszystkie arkusze, tylko aktywny albo wszystkie oprócz aktywnego.
+RUN_ALL = 'Wszystkie arkusze'
+RUN_ACTIVE = 'Tylko aktywny arkusz'
+RUN_EXCEPT_ACTIVE = 'Wszystkie oprócz aktywnego'
+RUN_MODES = (RUN_ALL, RUN_ACTIVE, RUN_EXCEPT_ACTIVE)
+
+
+def select_sides(sides, run_mode: str = RUN_ALL, active_sheet: int | None = None):
+    """Filtruj strony arkuszy wg trybu wykonania. Arkusz = numer arkusza (recto i verso razem)."""
+    if run_mode not in RUN_MODES:
+        raise ValueError(f'Nieznany tryb wykonania impozycji: {run_mode}')
+    if run_mode == RUN_ALL:
+        yield from sides
+        return
+    if active_sheet is None or active_sheet < 1:
+        raise ValueError('Wybierz aktywny arkusz w podglądzie')
+    keep = (lambda n: n == active_sheet) if run_mode == RUN_ACTIVE else (lambda n: n != active_sheet)
+    yield from (side for side in sides if keep(side.sheet_number))
+
+
+METADATA_FIELDS = ('author', 'title', 'subject', 'keywords')
+
+
+def output_metadata(output: str, fields: dict[str, str]) -> dict[str, str]:
+    """Metadane wyniku jak w Ustawieniach Impozycjonera 4: Autor, Tytuł, Temat, Słowa kluczowe;
+    puste pole = nazwa pliku wynikowego."""
+    unknown = set(fields) - set(METADATA_FIELDS)
+    if unknown:
+        raise ValueError(f'Nieznane pole metadanych: {", ".join(sorted(unknown))}')
+    name = Path(output).stem
+    result = {key: (str(fields.get(key) or '').strip() or name) for key in METADATA_FIELDS}
+    result['creator'] = 'Impozycjoner Studio 0.4.1'
+    return result
+
+
+def export_pdf(project: Project, output: str, metadata: dict[str, str] | None = None,
+               run_mode: str = RUN_ALL, active_sheet: int | None = None):
+    """Domyślnie (bez metadanych, wszystkie arkusze) zachowanie jest takie jak w 0.4.1."""
     validate(project.settings)
     if not project.jobs:
         raise ValueError('Dodaj co najmniej jeden plik PDF')
@@ -1015,12 +1055,14 @@ def export_pdf(project: Project, output: str):
                 raise ValueError(f'Ręczne zmiany naruszają nakłady: nadprodukcja {audit.overproduction}, '
                                  f'brakuje {audit.shortage}. Przywróć przypisania lub zamień użytki.')
         count = 0
-        for side in project_sides(project, sources):
+        for side in select_sides(project_sides(project, sources), run_mode, active_sheet):
             render_side(side, sources, project.settings, out, offsets)
             count += 1
         if count == 0:
-            raise ValueError('Brak stron do montażu')
-        out.set_metadata({'title':'Impozycjoner Studio - montaż PDF',
+            raise ValueError('Brak stron do montażu' if run_mode == RUN_ALL
+                             else f'Brak arkuszy do wykonania w trybie „{run_mode}”')
+        out.set_metadata(output_metadata(output, metadata) if metadata is not None else
+                         {'title':'Impozycjoner Studio - montaż PDF',
                           'creator':'Impozycjoner Studio 0.4.1'})
         Path(output).parent.mkdir(parents=True, exist_ok=True)
         out.save(output, garbage=3, deflate=True)
@@ -1031,7 +1073,7 @@ def export_pdf(project: Project, output: str):
             doc.close()
 
 
-def export_pages(project: Project, output: str) -> int:
+def export_pages(project: Project, output: str, metadata: dict[str, str] | None = None) -> int:
     """Produce one original logical page per output page at target net size.
 
     When bleed > 0, the physical MediaBox includes bleed and TrimBox is
@@ -1057,7 +1099,8 @@ def export_pages(project: Project, output: str) -> int:
                 page.set_bleedbox(page.rect)
         if len(out) == 0:
             raise ValueError('Brak stron do eksportu')
-        out.set_metadata({'title':'Impozycjoner Studio - strony w formacie docelowym',
+        out.set_metadata(output_metadata(output, metadata) if metadata is not None else
+                         {'title':'Impozycjoner Studio - strony w formacie docelowym',
                           'creator':'Impozycjoner Studio 0.4.1'})
         Path(output).parent.mkdir(parents=True, exist_ok=True)
         out.save(output, garbage=3, deflate=True)
