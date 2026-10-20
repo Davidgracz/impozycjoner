@@ -7,6 +7,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from PIL import ImageTk
 
+from commands import CommandStack, SetPageRepeat, execute, parse_int_field
 from engine import Job, Project, Settings, export_pdf, export_pages, geometry, load_project, preview, save_project, source_summary, PAGE_ROLES, ROLE_AUTO, ROLE_SKIP
 from preflight import inspect_project
 from taxi_ui import TaxiGeneratorFrame
@@ -50,6 +51,7 @@ class App(tk.Tk):
         self.minsize(1000, 700)
         self.configure(background=BG)
         self.project = Project()
+        self.commands = CommandStack(self.project)
         self.project_filename = None
         self.side_index = 0
         self.render_job = None
@@ -130,15 +132,17 @@ class App(tk.Tk):
         self._button(btns, 'Usuń',self.remove_file).pack(side='left',padx=(5,0))
         tree_frame = ttk.Frame(jobs, style='Panel.TFrame')
         tree_frame.pack(fill='both',expand=True)
-        self.files = ttk.Treeview(tree_frame, columns=('p','copies','role'),show='tree headings',selectmode='browse')
+        self.files = ttk.Treeview(tree_frame, columns=('p','copies','repeat','role'),show='tree headings',selectmode='browse')
         self.files.heading('#0',text='Plik')
         self.files.heading('p',text='Str.')
         self.files.heading('copies',text='Nakład')
+        self.files.heading('repeat',text='Powt.')
         self.files.heading('role',text='Rola')
-        self.files.column('#0',width=110,stretch=True)
+        self.files.column('#0',width=84,stretch=True)
         self.files.column('p',width=38,stretch=False,anchor='center')
         self.files.column('copies',width=51,stretch=False,anchor='center')
-        self.files.column('role',width=80,stretch=False,anchor='center')
+        self.files.column('repeat',width=44,stretch=False,anchor='center')
+        self.files.column('role',width=76,stretch=False,anchor='center')
         self.files.pack(side='left',fill='both',expand=True)
         bar=ttk.Scrollbar(tree_frame,orient='vertical',command=self.files.yview)
         bar.pack(side='right',fill='y')
@@ -155,6 +159,21 @@ class App(tk.Tk):
         self.copies_entry.pack(side='left',padx=6)
         self.copies_entry.bind('<Return>',lambda e:self.change_copies())
         self._button(copies_frame,'Zmień',self.change_copies).pack(side='left')
+        repeat_frame = ttk.Frame(jobs, style='Panel.TFrame')
+        repeat_frame.pack(fill='x',pady=(0,2))
+        ttk.Label(repeat_frame,text='Powtórzenia każdej strony:',style='Panel.TLabel').pack(side='left')
+        self.repeat_var=tk.StringVar(value='1')
+        self.repeat_entry=ttk.Entry(repeat_frame,textvariable=self.repeat_var,width=6)
+        self.repeat_entry.pack(side='left',padx=6)
+        self.repeat_entry.bind('<Return>',lambda e:self.change_page_repeat())
+        self._button(repeat_frame,'Zmień',self.change_page_repeat).pack(side='left')
+        repeat_name_frame = ttk.Frame(jobs, style='Panel.TFrame')
+        repeat_name_frame.pack(fill='x',pady=(0,2))
+        self._button(repeat_name_frame,'Z nazwy pliku',self.page_repeat_from_name).pack(side='left',fill='x',expand=True)
+        self.undo_button=self._button(repeat_name_frame,'Cofnij',self.undo_command)
+        self.undo_button.pack(side='left',padx=(5,0))
+        self.repeat_hint=tk.StringVar(value='Liczbę powtórzeń można odczytać z nazwy: część po ostatnim „_”, same cyfry (np. Arkusz_300s.pdf → 300).')
+        ttk.Label(jobs,textvariable=self.repeat_hint,style='Muted.TLabel',wraplength=300,justify='left').pack(anchor='w',pady=(0,6))
         self._button(jobs, 'Przód / tył — role pliku i stron…', self.edit_page_roles,
                      accent=True).pack(fill='x', pady=(3, 7))
         ttk.Label(jobs,text='Role stosuje się w trybie Dwustronnie. Strony można oznaczać pojedynczo lub zakresami.',
@@ -362,7 +381,7 @@ class App(tk.Tk):
                 pages='!'
                 name=Path(j.path).name+' [BRAK]'
             self.files.insert('', 'end', iid=str(i), text=name,
-                              values=(pages,j.copies, j.role if not j.page_roles else 'Mieszane'))
+                              values=(pages,j.copies,j.page_repeat, j.role if not j.page_roles else 'Mieszane'))
         if selected is not None and str(selected) in self.files.get_children():
             self.files.selection_set(str(selected))
 
@@ -371,10 +390,12 @@ class App(tk.Tk):
         if not selection:return
         j=self.project.jobs[int(selection[0])]
         self.copies_var.set(str(j.copies))
+        self.repeat_var.set(str(j.page_repeat))
         try:
             count,w,h=source_summary(j.path)
             self.selected_info.set(f'{Path(j.path).name}\n{count} str. · TrimBox: {w} × {h} mm\nRola: {j.role}'
-                                       + (f' (wyjątki: {len(j.page_roles)})' if j.page_roles else ''))
+                                       + (f' (wyjątki: {len(j.page_roles)})' if j.page_roles else '')
+                                       + (f'\nPowtórzenia każdej strony: {j.page_repeat}' if j.page_repeat != 1 else ''))
         except Exception as e:
             self.selected_info.set(str(e))
 
@@ -511,6 +532,7 @@ class App(tk.Tk):
         sel=self.files.selection()
         if not sel:return
         self.project.jobs.pop(int(sel[0]))
+        self.commands=CommandStack(self.project)
         self.side_index=0
         self._render_jobs()
         self.refresh()
@@ -528,12 +550,54 @@ class App(tk.Tk):
         except ValueError:
             messagebox.showerror('Błąd','Nakład musi być liczbą całkowitą 1–1 000 000')
 
+    def _run_job_command(self, make_command, selected):
+        """Wykonaj komendę na zaznaczonym pliku; błąd walidacji nie zmienia projektu."""
+        outcome=execute(self.commands,make_command)
+        if not outcome.ok:
+            messagebox.showerror('Powtórzenia strony',outcome.message)
+            return
+        self.repeat_hint.set(outcome.message)
+        self.repeat_var.set(str(self.project.jobs[selected].page_repeat))
+        self._render_jobs(selected)
+        self.side_index=0
+        self.refresh()
+
+    def change_page_repeat(self):
+        sel=self.files.selection()
+        if not sel:
+            messagebox.showinfo('Wybierz plik','Zaznacz plik PDF po lewej stronie.')
+            return
+        idx=int(sel[0])
+        self._run_job_command(lambda:SetPageRepeat(idx,parse_int_field(self.repeat_var.get())),idx)
+
+    def page_repeat_from_name(self):
+        sel=self.files.selection()
+        if not sel:
+            messagebox.showinfo('Wybierz plik','Zaznacz plik PDF po lewej stronie.')
+            return
+        idx=int(sel[0])
+        self._run_job_command(lambda:SetPageRepeat.from_filename(self.project,idx),idx)
+
+    def undo_command(self):
+        command=self.commands.undo()
+        if command is None:
+            self.repeat_hint.set('Nie ma czego cofać.')
+            return
+        sel=self.files.selection()
+        self.repeat_hint.set(f'Cofnięto: {command.label}.')
+        self._render_jobs(int(sel[0]) if sel else None)
+        if sel:
+            self.repeat_var.set(str(self.project.jobs[int(sel[0])].page_repeat))
+        self.side_index=0
+        self.refresh()
+
     def move_job(self,direction):
         sel=self.files.selection()
         if not sel:return
         idx=int(sel[0]);new_idx=idx+direction
         if 0<=new_idx<len(self.project.jobs):
             self.project.jobs[idx],self.project.jobs[new_idx]=self.project.jobs[new_idx],self.project.jobs[idx]
+            self.commands=CommandStack(self.project)
             self._render_jobs(new_idx)
             self.side_index=0
             self.refresh()
@@ -622,6 +686,7 @@ class App(tk.Tk):
         if not path:return
         try:
             self.project=load_project(path)
+            self.commands=CommandStack(self.project)
             self.project_filename=path
             self.side_index=0
             self._fill_fields()

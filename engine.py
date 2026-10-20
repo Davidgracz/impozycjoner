@@ -13,7 +13,10 @@ from typing import Iterator
 import json
 import zipfile
 
-import pymupdf as fitz
+try:
+    import pymupdf as fitz
+except ImportError:  # czysta logika planowania (Job/Settings/plan_sides) działa bez PyMuPDF
+    fitz = None
 
 # Role labels are persisted in project files; keep them stable across releases.
 ROLE_AUTO = 'Normalnie'
@@ -32,6 +35,13 @@ def pt(mm: float) -> float:
 
 def mm(points: float) -> float:
     return points / PT_PER_MM
+
+
+def require_pymupdf():
+    """Zgłoś czytelny błąd zamiast AttributeError, gdy brakuje PyMuPDF."""
+    if fitz is None:
+        raise RuntimeError('Brak biblioteki PyMuPDF. Zainstaluj zależności: '
+                           'python -m pip install -r requirements.txt')
 
 
 def media_rect(page: fitz.Page) -> fitz.Rect:
@@ -55,6 +65,9 @@ class Job:
     copies: int = 1
     role: str = ROLE_AUTO
     page_roles: dict[str, str] = field(default_factory=dict)  # 1-based page numbers
+    # Powtórzenia KAŻDEJ strony pod rząd (p1,p1,p2,p2…), niezależnie od `copies`
+    # (powtórzenie całego pliku: p1,p2,p1,p2…). 1 = bez zmiany dotychczasowego zachowania.
+    page_repeat: int = 1
 
     def role_for(self, zero_based_page: int) -> str:
         return self.page_roles.get(str(zero_based_page + 1), self.role)
@@ -187,6 +200,8 @@ def validate_job_roles(jobs: list[Job], documents: dict[str, fitz.Document]):
     for job in jobs:
         if job.copies < 1:
             raise ValueError('Nakład musi być >= 1')
+        if job.page_repeat < 1:
+            raise ValueError('Liczba powtórzeń strony musi być >= 1')
         if job.role not in PAGE_ROLES:
             raise ValueError(f'Nieznana rola pliku {Path(job.path).name}: {job.role}')
         count = len(documents[job.path])
@@ -208,7 +223,8 @@ def _page_refs(jobs: list[Job], documents: dict[str, fitz.Document]) -> Iterator
         for _ in range(job.copies):
             for i in range(len(documents[job.path])):
                 if job.role_for(i) != ROLE_SKIP:
-                    yield SourcePage(job.path, i)
+                    for _ in range(job.page_repeat):
+                        yield SourcePage(job.path, i)
 
 
 def _duplex_pairs(jobs: list[Job], documents: dict[str, fitz.Document]):
@@ -241,7 +257,8 @@ def _duplex_pairs(jobs: list[Job], documents: dict[str, fitz.Document]):
             legacy: list[SourcePage] = []
             def flush_legacy():
                 for k in range(0, len(legacy), 2):
-                    pending.append((legacy[k], legacy[k+1] if k+1 < len(legacy) else None))
+                    pair = (legacy[k], legacy[k+1] if k+1 < len(legacy) else None)
+                    pending.extend([pair] * job.page_repeat)  # recto i verso powtarzane razem
                 legacy.clear()
             for i in range(len(documents[job.path])):
                 source = SourcePage(job.path, i)
@@ -253,10 +270,11 @@ def _duplex_pairs(jobs: list[Job], documents: dict[str, fitz.Document]):
                 if role == ROLE_SKIP or role == ROLE_SHARED:
                     continue
                 if role == ROLE_BACK:
-                    explicit_backs.append(source)
+                    explicit_backs.extend([source] * job.page_repeat)
                 elif role in (ROLE_FRONT, ROLE_AUTO):
-                    pending.append(source)  # fill verso only after all files are read
-                    explicit_fronts.append(source)
+                    for _ in range(job.page_repeat):
+                        pending.append(source)  # fill verso only after all files are read
+                        explicit_fronts.append(source)
             flush_legacy()
 
     if shared is not None and not explicit_fronts:
@@ -297,6 +315,10 @@ def _booklet_sides(jobs: list[Job], documents: dict[str, fitz.Document], s: Sett
     validate_job_roles(jobs, documents)
     if job.copies < 1:
         raise ValueError('Nakład musi być >= 1')
+    if job.page_repeat != 1:
+        # Kolejność stron broszury wynika z numeracji; powtarzanie pojedynczych stron
+        # zniekształciłoby składki. Nie zgadujemy — odmowa jest jawna (docs/behavior-spec.md, OQ-05).
+        raise ValueError('Powtórzenia stron nie są dostępne w trybie Broszura')
     refs = [SourcePage(job.path, i) for i in range(len(documents[job.path]))
             if job.role_for(i) != ROLE_SKIP]
     if not refs:
@@ -513,6 +535,7 @@ def render_side(side: SheetSide, sources: dict[str, fitz.Document], s: Settings,
 
 
 def open_sources(jobs: list[Job]) -> dict[str, fitz.Document]:
+    require_pymupdf()
     sources = {}
     try:
         for job in jobs:
@@ -626,8 +649,11 @@ def save_project(project: Project, path: str):
             file_path = str(f.relative_to(root))
         except ValueError:
             file_path = str(f)
-        jobs.append({'path':file_path,'copies':j.copies,
-                     'role':j.role,'page_roles':j.page_roles})
+        entry = {'path':file_path,'copies':j.copies,
+                 'role':j.role,'page_roles':j.page_roles}
+        if j.page_repeat != 1:  # pole opcjonalne: stare projekty zapisują się bajt w bajt tak samo
+            entry['page_repeat'] = j.page_repeat
+        jobs.append(entry)
     payload = {'format':'psimp','version':1, 'settings':asdict(project.settings), 'jobs':jobs}
     with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_DEFLATED) as z:
         z.writestr('project.json', json.dumps(payload,ensure_ascii=False,indent=2))
@@ -642,12 +668,14 @@ def load_project(path: str) -> Project:
     settings = Settings(**data['settings'])
     jobs = [Job(path=str((base / j['path']).resolve()) if not Path(j['path']).is_absolute()
                 else str(Path(j['path']).resolve()), copies=int(j['copies']),
-                role=j.get('role', ROLE_AUTO), page_roles=dict(j.get('page_roles', {})))
+                role=j.get('role', ROLE_AUTO), page_roles=dict(j.get('page_roles', {})),
+                page_repeat=int(j.get('page_repeat', 1)))
             for j in data.get('jobs', [])]
     return Project(settings, jobs)
 
 
 def source_summary(path: str) -> tuple[int, float, float]:
+    require_pymupdf()
     with fitz.open(path) as doc:
         if not doc.is_pdf or doc.needs_pass or not len(doc):
             raise ValueError('Plik nie jest poprawnym niezabezpieczonym PDF')
