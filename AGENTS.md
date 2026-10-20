@@ -7,6 +7,7 @@ z Impozycjonerem 4, rozwijana na istniejącym kodzie. Prawda o stanie prac jest 
 |---|---|
 | `docs/feature-parity.md` | Rejestr funkcji: zależności, status, dowody, test akceptacyjny |
 | `docs/behavior-spec.md` | Fakty (P-nn), hipotezy (H-nn), pytania otwarte (OQ-nn), formaty, przypadki brzegowe |
+| `docs/rea-evidence.md` | Rejestr dowodów REA (REA-nn), proces A–F, mapa formularzy, nieznane (U-nn), plan pokrycia |
 | `docs/architecture.md` | Silnik, komendy, UI, pliki; zasady zależności; decyzje |
 | `docs/roadmap.md` | Etapy, priorytety, testy porównawcze, lista kontrolna UI |
 
@@ -24,8 +25,12 @@ z Impozycjonerem 4, rozwijana na istniejącym kodzie. Prawda o stanie prac jest 
 5. **Czysta implementacja.** Nie kopiujemy kodu, grafik, plików z `Base.dat`, ciągów zasobów 1:1 ani nazw prywatnych
    metod oryginału. Opisujemy własnymi słowami, rysujemy znaczniki kodem. Nie obchodzimy zaciemnienia kodu i nie
    dotykamy warstwy licencyjnej. Nazw ani danych licencjobiorcy z instalacji nie umieszczamy w repozytorium.
-6. **REA tylko do luk.** Użycie narzędzi analizy oryginału uzasadnia konkretny `OQ-nn`/`H-nn`; wynik i jego
-   ograniczenia wpisz do dziennika dowodów (`docs/behavior-spec.md`, sekcja 7). Analiza statyczna to E1/E2, nigdy E3.
+6. **REA-first, oparte na dowodach.** Zanim opiszemy lub zaimplementujemy zachowanie oryginału, sprawdzamy je
+   narzędziami REA i wpisujemy wynik do rejestru `docs/rea-evidence.md` (wpisy REA-nn: narzędzie, parametry, identyfikator
+   dowodu, ograniczenia). Nie zastępujemy dostępnej analizy domysłami; gdy narzędzie nie działa, zapisujemy konkretną
+   blokadę, a nie obejście. Analiza statyczna to E1/E2 (wnioski z bajtów — „pochodne”), nigdy E3. Obowiązują ograniczenia
+   z zasady 5: nie odszyfrowujemy ciągów, nie obchodzimy zaciemnienia i licencji, nie kopiujemy kodu. Funkcji nie oznaczamy
+   jako zgodnej bez porównania z uruchomionym oryginałem (E3) na tych samych danych.
 7. **Jedna droga zmiany modelu: komendy** (`commands.py`) dla nowych funkcji; UI jest cienkie.
 
 ## 2. Komendy
@@ -69,7 +74,7 @@ Funkcja jest „zrobiona” dopiero, gdy **wszystko** poniżej jest prawdą:
 
 Po każdym etapie raport (w commicie, PR lub odpowiedzi) zawiera, w tej kolejności:
 
-1. **Co się zmieniło** — funkcje (ID z rejestru), pliki, decyzje; jedno zdanie na pozycję.
+1. **Co się zmieniło** — funkcje (ID z rejestru), pliki, decyzje, nowe wpisy REA-nn; jedno zdanie na pozycję.
 2. **Testy** — polecenie, liczba uruchomionych i zaliczonych; osobno **nieuruchomione** i dlaczego.
 3. **Regresja** — wynik pełnych testów i `diff_planning.py`; czy wszystkie dotychczasowe funkcje działają.
 4. **Zmiana rejestru** — wiersze, których status się zmienił (z → na), oraz nowe H-nn/OQ-nn.

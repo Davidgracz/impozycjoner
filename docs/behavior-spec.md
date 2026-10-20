@@ -18,7 +18,7 @@ Poziomy dowodów (te same w całym repozytorium):
 | Poziom | Źródło | Przykład |
 |---|---|---|
 | E1 | Własne streszczenie tekstów interfejsu i pomocy oryginału (zasoby programu, tooltipy, etykiety) | reguła „powtórzenia z nazwy pliku” |
-| E2 | Statyczna struktura instalacji: pliki XML, konfiguracja, lista plików, metadane | `FoldMark.xml`, `Ploter.xml` |
+| E2 | Statyczna struktura instalacji i pliku wykonywalnego: pliki XML, konfiguracja, lista plików, metadane, kotwice i liczniki IL z REA (wnioski „pochodne” — rachunek bajtów — są oznaczone) | `FoldMark.xml`, `Ploter.xml`, REA-05…REA-08 |
 | E3 | Obserwacja **uruchomionego** oryginału (zrzuty, wyjściowe PDF-y z próbek) | **brak — oryginał nie był uruchamiany** |
 | E4 | Własny kod, testy i dokumenty Studio | `engine.py`, `tests/…` |
 
@@ -32,9 +32,9 @@ na E3 to próbki wejście → wyjście wykonane w legalnie posiadanej kopii prog
 
 | ID | Fakt | Dowód |
 |---|---|---|
-| P-01 | **Powtórzenia każdej strony z nazwy pliku.** Bierze się część nazwy po *ostatnim* znaku „_”; gdy go nie ma — całą nazwę. Z wybranej części usuwa się wszystko, co nie jest cyfrą. Brak cyfr daje 1. | E1, podpowiedź przycisku przy polu „Ilość powtórzeń każdej strony” |
+| P-01 | **Powtórzenia każdej strony z nazwy pliku.** Bierze się część nazwy po *ostatnim* znaku „_”; gdy go nie ma — całą nazwę. Z wybranej części usuwa się wszystko, co nie jest cyfrą. Brak cyfr daje 1. | E1, podpowiedź przycisku „Liczba duplikatów w nazwie pliku −1” w oknie „Ilość powtórzeń” (sprostowanie 2026-10-20: wcześniej błędnie przypisana polu „Ilość powtórzeń każdej strony” z okna autowypełniania — zob. P-09, OQ-17) |
 | P-02 | Przykłady z tej samej podpowiedzi: `Arkusz_300s.pdf` → 300; `Ulotka_dla_sklepu_500stron.pdf` → 500; `Dyplom200.pdf` → 200; `Instrukcja.pdf` → 1. | E1 |
-| P-03 | **Nakład w kalkulatorze z nazwy pliku.** Jeśli „ostatnia fraza przed znakiem dolnego podkreślenia” w nazwie PDF jest nakładem, tabela kalkulatora dostaje ten nakład dla wszystkich stron tego pliku widocznych w tabeli stron do impozycji. Przykład: `test_2000.pdf` → 2000. | E1, opis w oknie kalkulatora |
+| P-03 | **Nakład w kalkulatorze z nazwy pliku.** Jeśli „ostatnia fraza przed znakiem dolnego podkreślenia” w nazwie PDF jest nakładem, tabela kalkulatora dostaje ten nakład dla wszystkich stron tego pliku widocznych w tabeli stron do impozycji. Przykład: `test_2000.pdf` → 2000. | E1, tekst okna „Nakład (ESC = anuluj)”. Implementacja tej reguły w kalkulatorze nie została zbadana (U-04) |
 | P-04 | Nazwa pliku wynikowego nie może zawierać znaków: `#` `%` `&` `*` `:` `<` `>` `?` `/` `\` `{` `}` oraz znaku pionowej kreski; nie może też być nazwą pliku przetwarzanego. | E1, podpowiedź i komunikat walidacji |
 | P-05 | Dostępne są dwie opcje dopisków do nazwy wyniku: stała fraza `--IMPOZYCJONER` oraz fraza z informacjami uzupełniającymi. | E1 |
 | P-06 | Narzędzie podziału zapisuje każdą stronę wybranego PDF osobno; nazwa to oryginalna nazwa z dopiskiem `--XX` (numer strony) i wybranym rozszerzeniem. | E1 |
@@ -49,6 +49,20 @@ na E3 to próbki wejście → wyjście wykonane w legalnie posiadanej kopii prog
 | P-11 | Opcja NWD (największy wspólny dzielnik): prace o nakładach 100, 1000 i 3000 liczone są jak o nakładach 1, 10 i 30 (NWD = 100), a wynikowe nakłady mnoży się przez NWD. Skraca obliczenia, ale wyniki z NWD i bez mogą się „nieznacznie różnić”. | E1 |
 | P-12 | Liczenie może być automatyczne (po każdej zmianie nakładu lub parametrów) albo ręczne (klawisz F6). Obliczenia można przerwać, gdy wyniki zaczynają się pogarszać. | E1 |
 | P-13 | Obsługa: usuwanie pliku z kalkulatora — prawy klawisz myszy; zmiana nakładu — F2 lub dwukrotne kliknięcie; tabela pokazuje „ilości użytków zajmowanych przez prace na kolejnych arkuszach”. | E1 |
+
+### 2.2a Powielanie wierszy tabeli stron — okno „Ilość powtórzeń” (REA, E1/E2)
+
+Źródło: `docs/rea-evidence.md` §4 (REA-05…REA-09). „Tabela stron do impozycji” to lista, w której wiersz = strona pliku.
+Wnioski oznaczone *(pochodne)* wynikają z rachunku bajtów IL (kotwice + liczniki kodów operacji), nie z dekompilacji.
+
+| ID | Fakt | Dowód |
+|---|---|---|
+| P-09 | Reguła z P-01/P-02 należy do okna „Ilość powtórzeń:” i jego przycisku „Liczba duplikatów w nazwie pliku −1”. Okno ma pole liczbowe, przyciski OK i Anuluj. Okno „Autowypełnianie arkusza” (pole „Ilość powtórzeń każdej strony”) nie zawiera w zasobach żadnej podpowiedzi z tą regułą (OQ-17). | E1 + E2 (REA-04, REA-05) |
+| P-14 | OK i „Liczba duplikatów…” zamykają okno z wynikiem „OK” i zapisują tryb: OK → 0 (liczba z pola), „Liczba duplikatów…” → 1 (z nazwy pliku). Anuluj zamyka okno z wynikiem „Anuluj”; wtedy tabela się nie zmienia (odbiorca działa tylko przy „OK”). | E2 (REA-05, REA-08) |
+| P-15 | Operacja przechodzi po zaznaczonych wierszach tabeli; dla każdego wstawia kopie **bezpośrednio pod wierszem źródłowym** i przepisuje do każdej kopii wartości wszystkich komórek (kolumny od pierwszej do ostatniej). Wiersz źródłowy pozostaje na miejscu. Po operacji aktualizowany jest stan okna. | E2 (REA-07, REA-08) *(pochodne)* |
+| P-16 | Tryb 1: liczba kopii = N − 1, gdzie N to wynik reguły z nazwy pliku (bez rozszerzenia) z komórki wiersza. Wiersz występuje więc łącznie N razy. | E1 (etykieta „−1”) + E2 (`sub` po wywołaniu reguły) *(pochodne)* |
+| P-17 | Reguła z nazwy: nazwa dzielona po znaku `_`; brany **ostatni** element (brak `_` → cały ciąg); z elementu regex z **pustym** zastępnikiem usuwa pewne znaki (wzorzec w zaszyfrowanym literale, nie odczytujemy); wynik konwertowany funkcją VB na liczbę całkowitą; **dowolny wyjątek daje 1**. W oknie głównym jest tylko jeden wywołujący (operacja powielania). | E2 (REA-08, REA-09) *(wartość 1 pochodna)* |
+| P-18 | Maksimum pola liczbowego w oknie wynosi 1 000 000 (stała w konstruktorze okna). Uzasadnia `MAX_REPEATS` w `naming.py`/`commands.py` dla ścieżki ręcznej. | E2 (REA-05) |
 
 ### 2.3 Parametry akcydensu i znaczniki
 
@@ -148,7 +162,7 @@ To jest zachowanie **naszego** silnika, które chronimy przed regresją. Nie twi
 ### H-05 — jedna reguła dla „powtórzeń strony” i „nakładu w kalkulatorze”
 - **Treść:** pomoc opisuje obie funkcje innymi słowami (P-01: „część po ostatnim `_`”; P-03: „ostatnia fraza przed znakiem `_`”, przykład `test_2000.pdf`). Przyjmujemy, że to ta sama reguła, bo przykład P-03 jest z nią zgodny.
 - **Ryzyko:** gdyby P-03 oznaczało „fraza *przed* ostatnim `_`”, zachowanie kalkulatora byłoby inne. Przykład `test_2000` przemawia przeciwko temu.
-- **Rozstrzygnięcie:** E3 (`2000_test.pdf` w kalkulatorze).
+- **Rozstrzygnięcie:** E3 (`2000_test.pdf` w kalkulatorze) albo REA na typach kalkulatora (U-04). REA 2026-10-20: w oknie głównym regułę z nazwy woła wyłącznie operacja powielania wierszy (P-17), więc implementacja kalkulatora jest **osobna** i nie zbadana — hipoteza „jedna reguła” pozostaje nieudowodniona.
 - **Kod:** `naming.parse_repeats` jest współdzielone; kalkulator jeszcze nie istnieje.
 
 ### H-06 — powtórzenia w dupleksie dotyczą par recto/verso
@@ -180,6 +194,21 @@ To jest zachowanie **naszego** silnika, które chronimy przed regresją. Nie twi
 ### H-12 — `F1` oznacza wspólny zestaw znaczników dla recto i verso, `F2` — osobne zestawy
 - **Podstawa:** w próbkach `F1` występuje tylko w nazwach „Recto Verso”, a `F2` w parach „Recto” / „Verso”.
 
+### H-13 — tryb „z pola” dodaje N kopii (N + 1 wystąpień), tryb „z nazwy” N − 1 kopii (N wystąpień)
+- **Treść:** w oknie „Ilość powtórzeń” liczba z pola oznacza liczbę **dodatkowych** wierszy; liczba z nazwy pliku oznacza **nakład całkowity** (stąd „−1” w etykiecie przycisku).
+- **Podstawa:** E2 pochodne (REA-08): między odczytem pola a granicą pętli nie ma odejmowania, a w ścieżce z nazwy jest `ldc.i4.1; sub`; początek obu pętli to ta sama jednobajtowa stała, którą przyjmujemy za 1 (dla trybu z nazwy potwierdza to etykieta E1).
+- **Ryzyko:** jeśli początek pętli w trybie „z pola” to inna stała, wynik różni się o stałą. Studio dziś traktuje wpisaną liczbę jako liczbę wystąpień (`page_repeat = N`) — **świadoma różnica do czasu E3**.
+- **Rozstrzygnięcie:** E3 — wiersz, pole = 2, zliczyć wiersze (3 czy 2?).
+
+### H-14 — przypadki brzegowe reguły z nazwy wynikają z konwersji VB
+- **Treść:** pusty ciąg po usunięciu znaków → wyjątek → 1; `0` → 0, a w trybie z nazwy pętla ma ujemną granicę → **brak kopii** (wiersz zostaje raz); liczba poza zakresem 32-bitowym → wyjątek → 1. Studio: `0` i wartości > 1 000 000 są błędem komendy (OQ-02).
+- **Podstawa:** P-17 (każdy wyjątek daje 1) i znane zachowanie biblioteki konwersji VB; samo zachowanie biblioteki **nie** jest dowodem z pliku oryginału.
+- **Rozstrzygnięcie:** E3 — nazwy `A_0.pdf`, `A_.pdf`, `A_99999999999.pdf`.
+
+### H-15 — minimalna i domyślna wartość pola w oknie to 1
+- **Podstawa:** wartość maksymalna 1 000 000 jest potwierdzona (P-18); minimum i wartość początkowa są ukryte w jednobajtowych stałych kotwic. Zwykła konwencja (1 = brak powtórzenia).
+- **Rozstrzygnięcie:** E3 — otworzyć okno i odczytać; albo dekompilat (D-1 w `docs/rea-evidence.md`).
+
 ## 5. Pytania otwarte
 
 | ID | Pytanie | Wpływ | Jak rozstrzygnąć |
@@ -197,6 +226,10 @@ To jest zachowanie **naszego** silnika, które chronimy przed regresją. Nie twi
 | OQ-11 | Autowypełnianie: dokładna kolejność przy kierunku i narożniku, filtr parzyste/nieparzyste, interakcja z powtórzeniami. | `F-AKC-AUTOFILL`. | E3. |
 | OQ-12 | Zawartość i znaczenie zestawów „C” / „O” (dodatkowe elementy). | Domyślne znaczniki. | E3 (porównanie ustawień obu zestawów). |
 | OQ-13 | Treść dwóch prywatnych bloków zasobów oraz nazw metod (zaciemnione). | Potencjalne ukryte reguły. | Nie rozstrzygamy: obchodzenie zaciemnienia jest poza zakresem projektu. |
+| OQ-14 | Z której kolumny tabeli stron operacja powielania czyta nazwę pliku (indeks to jednobajtowa stała) i czy jest to nazwa, czy pełna ścieżka (rozszerzenie i katalog są odcinane niezależnie od tego). | Wiersze z plików o różnych nakładach. | E3: tabela z dwoma plikami o różnych nazwach; albo dekompilat (D-1). |
+| OQ-15 | Wzorzec regex reguły z nazwy (zaszyfrowany literał). E1 („usunięcie znaków innych niż cyfry”) go opisuje, ale nie rozstrzyga np. cyfr spoza ASCII (H-02) i znaków łączonych. | `naming.py`. | E3 (nazwy z cyframi niełacińskimi i kropką/przecinkiem). Literału nie odczytujemy. |
+| OQ-16 | Okno główne ma dwa warianty tabeli stron (kolumny z przyrostkami „_I” i „_M”) i zaszyfrowany znacznik trybu, który wybiera wskaźnik postępu i tabelę zaznaczenia. Co oznaczają te tryby? | Zakres „Powtórzeń” i innych operacji na tabeli. | E3 (zmiana trybu w programie) lub dekompilat. |
+| OQ-17 | Czy okno „Autowypełnianie arkusza” (pole „Ilość powtórzeń każdej strony”, grupa „Powiel stronę”) ma własną regułę lub przycisk z nazwy pliku? W zasobach okna nie ma takiej podpowiedzi (dowód ujemny E1, kod nie badany). | Dokładne mapowanie `F-AKC-REP` / `F-AKC-AUTOFILL`. | REA na typie `Dodatkowe_Autowypelnianie` + E3. |
 
 ## 6. Przypadki brzegowe
 
@@ -206,7 +239,10 @@ To jest zachowanie **naszego** silnika, które chronimy przed regresją. Nie twi
 | Cyfry tylko przed ostatnim „_” | P-01 (dosłownie): ignorowane → 1 | 1 | `tests/test_naming.py::LiteralReadingOfTheRule` |
 | Wiele grup cyfr (`5x10`) | P-01 dosłownie: łączymy → 510 (OQ-02) | 510 | `tests/test_naming.py::LiteralReadingOfTheRule` |
 | Cyfry `000` | nieznane (OQ-02) | błąd komendy, plik bez zmian | `tests/test_commands.py::SetPageRepeatTests` |
-| Wartość > 1 000 000 | nieznane | błąd komendy, plik bez zmian | `tests/test_commands.py::SetPageRepeatTests` |
+| Wartość > 1 000 000 | P-18: maksimum pola w oknie oryginału; powyżej pole nie pozwala wpisać | błąd komendy, plik bez zmian | `tests/test_commands.py::SetPageRepeatTests` |
+| Nakład z nazwy = 1 | P-16: 0 kopii, wiersz zostaje raz | `page_repeat = 1`, bez zmian planu | `tests/test_plan_repeats.py::SingleSidedRepeats` |
+| Nakład z nazwy `0` / pusty / ponad zakres 32-bitowy | H-14: 0 → brak kopii; pusty i ponad zakres → 1 | `0` i > 1 000 000 → błąd komendy (świadoma różnica); pusty → 1 | `tests/test_naming.py::HypothesesNotConfirmedByTheOriginal` |
+| Powtórzenia zaznaczonych wierszy (podzbiór stron pliku) | P-15: działa na zaznaczeniu | Studio powiela cały plik (`Job.page_repeat`); brak odpowiednika zaznaczenia — `F-WEJ-ROWDUP` | PLAN w `F-WEJ-ROWDUP` |
 | Pusty fragment po „_” | H-03 | 1 | `tests/test_naming.py::HypothesesNotConfirmedByTheOriginal` |
 | Powtórzenia + broszura | OQ-05 | błąd planowania „Powtórzenia stron nie są dostępne w trybie Broszura” | `tests/test_plan_repeats.py::BookletRepeats` |
 | Przody powtórzone, tyły nie | — | błąd „Tyłów jest X, przodów Y” | `tests/test_plan_repeats.py::DuplexRepeats` |
@@ -221,12 +257,17 @@ To jest zachowanie **naszego** silnika, które chronimy przed regresją. Nie twi
 
 ## 7. Użycie REA i dziennik dowodów
 
-REA służy **wyłącznie** do rozstrzygania konkretnych luk (OQ-nn lub H-nn). Zasady:
+Tryb pracy: **REA-first** (od 2026-10-20, `AGENTS.md` zasada 6). Każda funkcja oryginału jest najpierw badana
+narzędziami REA; wyniki i blokady środowiska zapisuje rejestr dowodów `docs/rea-evidence.md` (REA-nn). Ta tabela jest
+dziennikiem skrótowym. Zasady:
 
-1. Zapytanie musi wskazywać numer luki i oczekiwany rodzaj dowodu (tekst pomocy, struktura pliku, dane).
-2. Wynik trafia do tabeli poniżej: data, luka, narzędzie, co znaleziono, **ograniczenia**.
-3. Wniosek ze statycznej analizy to E1 lub E2, nigdy E3. Hipoteza staje się faktem (P-nn) dopiero po wpisie w dzienniku.
-4. Nie omijamy zaciemnienia kodu, nie ruszamy warstwy licencyjnej i nie kopiujemy kodu, grafik ani plików z instalacji.
+1. Zapytanie wskazuje funkcję lub numer luki (OQ-nn/H-nn) i oczekiwany rodzaj dowodu (tekst pomocy, struktura pliku, dane).
+2. Wynik trafia do `docs/rea-evidence.md` (identyfikator dowodu, ograniczenia) i skrótowo do tabeli poniżej.
+3. Wniosek ze statycznej analizy to E1 lub E2, nigdy E3. Wnioski z rachunku bajtów IL są oznaczone „pochodne”.
+   Hipoteza staje się faktem (P-nn) dopiero po wpisie w rejestrze dowodów.
+4. Gdy narzędzie lub dostawca jest niedostępny, nie udajemy analizy: blokada trafia do `docs/rea-evidence.md` §1.
+5. Nie omijamy zaciemnienia kodu (nie odczytujemy zaszyfrowanych literałów), nie ruszamy warstwy licencyjnej i nie
+   kopiujemy kodu, grafik ani plików z instalacji.
 
 | Data | Luka | Narzędzie | Wynik | Ograniczenia |
 |---|---|---|---|---|
@@ -235,3 +276,7 @@ REA służy **wyłącznie** do rozstrzygania konkretnych luk (OQ-nn lub H-nn). Z
 | 2026-10-20 | Formaty presetów (P-30…P-32) | Odczyt `FoldMark.xml`, `Ploter.xml` z `Base.dat` | Struktura pól i wartości; przeliczenie jednostek (H-08) | Brak opisu semantyki pól `PI*` |
 | 2026-10-20 | Granice natywne i licencja | REA: granice zarządzane/natywne | Potwierdzenie warstwy licencyjnej; pominięta celowo | Poza zakresem projektu |
 | 2026-10-20 | OQ-13 | REA: widoki typów | Nazwy typów czytelne, nazwy metod i pól zaciemnione, ciała metod niedostępne bez obchodzenia zaciemnienia | Nie rozstrzygamy |
+| 2026-10-20 | Etap A (środowisko REA) | `binary_session`, `binary_overview`, `list_documents`, `inspect_managed_*` | Ścieżka metadanych zarządzanych działa; Ghidra/Hopper/IDA/Kuna niedostępne dla pliku zarządzanego (REA-02, REA-11, REA-12) | Brak pseudokodu i asemblera; brak dekompilatora CIL |
+| 2026-10-20 | Reguła i operacja „Powtórzenia” (P-09, P-14…P-18, H-13…H-15, OQ-14…OQ-17) | REA: `inspect_managed_members` (Form_Powtorzenia, Form_Glowna), `inspect_analysis_view` (methods, call_edges, user_strings) | Okno, tryby, pętla kopiowania wierszy, reguła z nazwy, maksimum pola (REA-05…REA-09) | Wnioski pochodne z kotwic; wzorzec regex zaszyfrowany (nie odczytujemy) |
+| 2026-10-20 | Inwentarz formularzy (81) | własny parser pakietów `.resources` (REA-04) | Mapowanie na rejestr; 5 nowych wierszy, sprostowanie źródła P-01 | E1 (teksty UI); nie dowodzi zachowania |
+| 2026-10-20 | Konfiguracja Ghidry 12.1.4 (katalog użytkownika) | odczyt plików konfiguracyjnych, listing procesorów | Wymaga JDK ≥ 21; brak procesora CIL; provider REA nie przyjmuje plików zarządzanych | Nie zmienia możliwości analizy Impozycjoner.exe (REA-11, REA-12) |

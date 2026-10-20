@@ -33,12 +33,12 @@ Status oznacza „co potrafimy udowodnić testem”, nie „jak bardzo działa�
 <!-- PODSUMOWANIE:START -->
 | Status | Liczba |
 |---|---|
-| missing | 71 |
+| missing | 76 |
 | partial | 17 |
 | working | 8 |
 | working† | 12 |
 | verified | 0 |
-| razem | 108 |
+| razem | 113 |
 <!-- PODSUMOWANIE:END -->
 
 ## Rdzeń silnika
@@ -61,6 +61,9 @@ Status oznacza „co potrafimy udowodnić testem”, nie „jak bardzo działa�
 | F-WEJ-OUTNAME | Nazwa pliku wynikowego: zakaz znaków `# % & * : < > ? / \ { }` i pionowej kreski, zakaz nazwy równej przetwarzanemu plikowi, dopiski `--IMPOZYCJONER` i fraza uzupełniająca | — | missing | E1 P-04, P-05 | PLAN: lista nazw zabronionych → odrzucone z komunikatem; nazwa = źródło → odrzucona; opcja dopisku dodaje dokładnie `--IMPOZYCJONER` (test jednostkowy czystej funkcji w `naming.py`). |
 | F-WEJ-META | Metadane wyniku: Autor, Tytuł, Temat, Słowa kluczowe (puste = nazwa pliku); wersja PDF (domyślnie 1.5) | — | missing | E1 P-07, E2 `Pdf_version` | PLAN: puste pola → nazwa pliku w metadanych; wersja nagłówka PDF zgodna z wyborem (odczyt z pliku wynikowego). |
 | F-WEJ-PAGECNT | Ostrzeżenie, gdy nakładane pliki mają różną liczbę stron, z pytaniem o kontynuację | F-WEJ-PDF | missing | E1 P-08 | PLAN: dwa pliki 3 i 5 stron → ostrzeżenie w preflight i pytanie w UI; jeden plik → brak ostrzeżenia. |
+| F-WEJ-ROWDUP | Powielanie zaznaczonych wierszy tabeli stron (okno „Ilość powtórzeń”): kopie wstawiane bezpośrednio pod wierszem źródłowym, z przepisaniem wszystkich komórek; liczba z pola albo z nazwy pliku (N − 1 kopii) | F-WEJ-PDF | missing | E1 P-09, P-16; E2 P-14, P-15, P-17, P-18 (REA-05…REA-09) | PLAN: tabela z trzema wierszami pliku `Arkusz_3.pdf`, zaznaczone wszystkie, tryb „z nazwy” → 9 wierszy w kolejności 1,1,1,2,2,2,3,3,3; zaznaczony tylko wiersz 2 → 1,2,2,2,3; tryb „z pola” — wartość oczekiwana dopiero z E3 (H-13); `0`, pusty fragment i ponad zakres — H-14. |
+| F-WEJ-CHGPAGE | „Zmień plik/stronę”: podmiana pliku i numeru strony wybranego wiersza tabeli stron (pole „Strona: n z m”, przycisk „Otwórz…”) | F-WEJ-PDF | missing | E1 (teksty okna `Form_DodajPlik`; REA-04) | PLAN: po podmianie wiersz wskazuje nowy plik i stronę, pozostałe wiersze bez zmian; zachowanie przy stronie spoza zakresu i przy zmianie liczby stron — nieznane (wymaga E3). |
+| F-WEJ-OUTMERGE | Łączenie plików wynikowych: siedem wariantów (w jeden plik / w arkusze / każdy osobno oraz ich kombinacje) | F-COR-RENDER | missing | E1 (teksty okna `Form_LaczeniePlikow`; REA-04) | PLAN: dla dwóch plików i trzech arkuszy każdy wariant daje oczekiwany zestaw plików wynikowych; nazewnictwo wyników — dopiero z E3 (powiązane: F-WEJ-OUTNAME). |
 
 ## Akcydensy (moduł „Impozycja akcydensów”)
 
@@ -80,7 +83,7 @@ Status oznacza „co potrafimy udowodnić testem”, nie „jak bardzo działa�
 | F-AKC-BLANKS | Wakaty (puste miejsca) kontrolowane przez operatora. Studio dopełnia puste miejsca tylko automatycznie (verso, broszura) | F-AKC-ITEMTABLE | partial | E1; E4 `engine._duplex_pairs`, `_booklet_sides` | PLAN: operator zaznacza slot jako wakat → eksport zostawia go pustym, a kolejne strony przesuwają się zgodnie z regułą z E3; istniejące: `tests/test_plan_baseline.py::BookletCharacterisation`. |
 | F-AKC-AUTOFILL | Autowypełnianie: narożnik startu (LG/LD/PG/PD), kierunek, wszystkie/nieparzyste/parzyste strony, powtórzenia na stronę. Studio: kolejne sloty wierszami od lewego górnego rogu | F-AKC-GRID, F-AKC-REP | partial | E1; E4 `engine.plan_sides` | PLAN: start z PD, kierunek w dół → kolejność slotów wg ręcznego rachunku; filtr „parzyste” pomija strony nieparzyste (OQ-11); istniejące: `tests/test_plan_baseline.py::SingleSidedOrder`. |
 | F-AKC-PATTERN | „Wypełnienie według wzoru” pierwszego arkusza | F-AKC-MULTISHEET | missing | E1 | PLAN: pierwszy arkusz ma układ A; wzór kopiuje układ na kolejne arkusze z pozostałymi pracami. |
-| F-AKC-REP | **Powtórzenia każdej strony**: wpisane ręcznie albo odczytane z nazwy pliku (część po ostatnim „_”, tylko cyfry, brak cyfr = 1). Pierwszy pionowy fragment | F-AKC-GRID, F-WEJ-PDF, F-SYS-PROJECT | partial | E1 P-01, P-02; E4 `naming.py`, `commands.py`, `engine.py`, `app.py` | PLAN: dokończyć po stronie Windows: (1) `python -m pytest -q tests/test_repeats_pdf.py` (PDF `Arkusz_2.pdf` → każda strona 2×, kolejność 1,1,2,2,3,3), (2) ręczna lista kontrolna UI z `docs/roadmap.md`, Etap 0. Uruchomione: `tests/test_naming.py::OriginalHelpExamples`, `tests/test_commands.py::SetPageRepeatTests`, `tests/test_plan_repeats.py::SingleSidedRepeats` Przebieg: 2026-10-20 (unittest, Linux, bez PyMuPDF) PASS. Nieuruchomione: `tests/test_repeats_pdf.py::test_name_to_pdf_each_page_twice_in_order`, UI Tk. |
+| F-AKC-REP | **Powtórzenia każdej strony**: wpisane ręcznie albo odczytane z nazwy pliku (część po ostatnim „_”, tylko cyfry, brak cyfr = 1). Pierwszy pionowy fragment. W oryginale odpowiada mu operacja „Powtórzenia” na wierszach tabeli stron (`F-WEJ-ROWDUP`); Studio powiela wszystkie strony pliku naraz (kolejność 1,1,2,2…) | F-AKC-GRID, F-WEJ-PDF, F-SYS-PROJECT | partial | E1 P-01, P-02, P-09, P-16; E2 P-14, P-15, P-17, P-18 (REA-05…REA-09); E4 `naming.py`, `commands.py`, `engine.py`, `app.py` | PLAN: dokończyć po stronie Windows: (1) `python -m pytest -q tests/test_repeats_pdf.py` (PDF `Arkusz_2.pdf` → każda strona 2×, kolejność 1,1,2,2,3,3), (2) ręczna lista kontrolna UI z `docs/roadmap.md`, Etap 0. Uruchomione: `tests/test_naming.py::OriginalHelpExamples`, `tests/test_commands.py::SetPageRepeatTests`, `tests/test_plan_repeats.py::SingleSidedRepeats` Przebieg: 2026-10-20 (unittest, Linux, bez PyMuPDF) PASS. Nieuruchomione: `tests/test_repeats_pdf.py::test_name_to_pdf_each_page_twice_in_order`, UI Tk. RÓŻNICE WOBEC ORYGINAŁU (nierozstrzygnięte, patrz spec): wpisana liczba w oryginale zapewne oznacza N dodatkowych kopii (H-13), a z nazwy N wystąpień (P-16); `0`/pusty/ponad zakres inaczej (H-14); operacja działa na zaznaczeniu, nie na całym pliku (`F-WEJ-ROWDUP`). Status `verified` dopiero po E3. |
 | F-AKC-COPIES | „Nakład pliku” — powtórzenie całego pliku (1,2,3,1,2,3). Rozszerzenie Studio; Feature Map nie zna takiej funkcji | F-AKC-GRID | working | E4 `Job.copies` (S-02) | `tests/test_plan_baseline.py::SingleSidedOrder` Przebieg: 2026-10-20 (unittest, Linux, bez PyMuPDF) PASS |
 | F-AKC-RUNNAME | Nakład z nazwy pliku dla wszystkich stron pliku w tabeli kalkulatora (`test_2000.pdf` → 2000) | F-AKC-CALC | missing | E1 P-03; H-05 | PLAN: po powstaniu kalkulatora `test_2000.pdf` wypełnia nakład 2000 dla każdej strony pliku; parser już istnieje (`naming.parse_repeats`, `tests/test_naming.py::OriginalHelpExamples`). |
 | F-AKC-CALC | Kalkulator nakładów: rozkład użytków prac na arkuszach o minimalnej liczbie impozycji i odpadzie; cena arkusza 0,30, cena narzędzia 120; wczesne zatrzymanie; auto-przeliczanie lub F6; usuwanie PKM; F2/dwuklik zmienia nakład | F-AKC-GRID, F-AKC-MULTISHEET | missing | E1 P-10, P-12, P-13; H-10; OQ-04 | PLAN: zestawy nakładów 100/1000/3000 oraz ≥ 10 innych → rozkład i koszt zgodne z tabelą z E3. Bez E3 nie da się zdefiniować wartości oczekiwanych — nie implementujemy „na oko”. |
@@ -93,6 +96,7 @@ Status oznacza „co potrafimy udowodnić testem”, nie „jak bardzo działa�
 | F-AKC-PARTIAL | Impozycja cząstkowa: bez znaczników / znaczniki 1 mm / 2 mm | — | missing | E1 P-28; H-11 | PLAN: trzy warianty dają trzy różne zestawy znaczników; znaczenie 1/2 mm — E3. |
 | F-AKC-MOCKUP | „Makieta” — szybki, uproszczony podgląd. Studio renderuje rzeczywisty podgląd jednego arkusza | F-STU-PREVIEW | missing | E1 | PLAN: tryb makiety rysuje prostokąty użytków z numerami stron bez renderowania PDF; czas dla 1000 stron < 0,2 s (pomiar). |
 | F-AKC-RUNMODES | „Wykonaj impozycję”: wszystkie arkusze / tylko aktywny / wszystkie poza aktywnym | F-AKC-MULTISHEET | missing | E1 | PLAN: trzy tryby dają odpowiednio N, 1 i N−1 arkuszy w pliku wynikowym. |
+| F-AKC-SHEETRNG | Wybór zakresu arkuszy do wykonania: „wszystkie arkusze” albo „tylko arkusze z zakresu” (składnia z przykładu: `-3, 6, 9-11, 15-`; dozwolone przecinek, minus i cyfry) | F-AKC-RUNMODES | missing | E1 (teksty okna `Form_ZakresArkuszy`; REA-04) | PLAN: zakres `-3, 6, 9-11, 15-` przy 20 arkuszach; znaczenie otwartych końców (`-3`, `15-`) i błędnych zapisów — dopiero z E3, do tego czasu błąd z komunikatem. |
 | F-AKC-SIGN | Sposób oznaczania arkusza i strony (nazwa, numeracja arkusza, strony, sygnatury) w opisie impozycji | — | missing | E1 | PLAN: wzorzec numeracji „Ark. 2/5” → tekst w opisie; wzorce z E3. |
 
 ## Dwustronność
@@ -188,6 +192,7 @@ Status oznacza „co potrafimy udowodnić testem”, nie „jak bardzo działa�
 | F-SYS-SETTINGS | Ustawienia użytkownika: marginesy, chwyt, zestaw, kolor interfejsu, ceny, wersja PDF, katalogi (`MyImpozycjoner`) | — | missing | E2 `Impozycjoner.exe.config` | PLAN: zapis i odczyt profilu użytkownika (JSON w katalogu danych aplikacji); wartości domyślne jak w P-21/P-33. |
 | F-SYS-SHORTCUTS | Skróty klawiszowe i menu kontekstowe (PKM) oryginału | — | missing | E1 | PLAN: lista skrótów z E1 przypisana do komend; test mapowania skrót → komenda bez Tk. |
 | F-SYS-HELP | Podpowiedzi i pomoc kontekstowa przy kontrolkach | — | missing | E1 | PLAN: każda kontrolka z nowej funkcji ma podpowiedź; test, że identyfikatory podpowiedzi istnieją. |
+| F-SYS-PROGRESS | Okno postępu „Generowanie plików…” z przerwaniem klawiszem ESC (osobny wariant dla plotera) | F-COR-RENDER | missing | E1 (teksty okien `Form_PasekWykonaj`, `Form_PasekWykonajPloterownica`; REA-04) | PLAN: eksport 22 stron z przerwaniem w połowie nie psuje projektu; stan plików po przerwaniu w oryginale — nieznany (E3). |
 | F-SYS-LICENSE | Licencjonowanie, aktywacja, licencja pływająca, sprawdzanie wersji i dostępu do internetu — **poza zakresem** (nie implementujemy) | — | missing | E2 `Impozycjoner.exe.config` | PLAN: poza zakresem — decyzja projektowa, brak testu. |
 
 ## Funkcje Studio spoza Feature Map
