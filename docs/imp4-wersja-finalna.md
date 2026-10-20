@@ -70,7 +70,20 @@ Reguły podane w tekstach: wycinka pionowa tylko przy parzystej liczbie kolumn; 
 szerokość wycinki ≥ 2 × odstęp znaczników od użytków (i tylko dla spadu 0 mm oraz odstępu > 0); docięcie TrimBox to
 „włos” z lewej na stronach parzystych i z prawej na nieparzystych; znaczniki falcowania dla arkuszy 8/12/16 stron.
 
-**Studio 0.4.1:** linie cięcia i numery stron. Pozostałe rodzaje — brak.
+**Studio 0.4.1:**
+
+| Znacznik oryginału | Studio |
+|---|---|
+| Netto (N) | częściowo — linie cięcia z parametrami: odstęp od spadu, długość, grubość [pt]; skrót **N**; bez wyboru narożników i stron parzystych/nieparzystych |
+| Wycinka (W) | **nowe** — szerokość pionowa/pozioma, tylko przy parzystej liczbie kolumn/wierszy (inaczej uwaga w preflight i na pasku stanu), znacznik w osi o długości X albo przez całe pole zadruku, grubość [pt]; skrót **W**; bez paska kontrolnego i przycisków „Oblicz” |
+| Docięcie TrimBox (T) | **nowe** — włos [pt] z lewej na stronach parzystych, z prawej na nieparzystych; skrót **T** |
+| Marginesy (M) | częściowo — tylko „odstęp znaczników od użytków” (w parametrach linii cięcia); bez apli i reguły spadów przy wycince |
+| „Wyłącz wszystkie znaczniki” | **nowe** |
+| Pozostałe (B, P, S, K, F, O, U, C, G, R) | brak |
+
+Kliknięcie przycisku znacznika przełącza go (jak dotąd w Studio); **prawy przycisk otwiera parametry** — w oryginale
+role przycisków są odwrotne (klik = definicje, prawy = włącz/wyłącz). Parametry zapisują się w projekcie `.psimp`
+(nowe pola są opcjonalne; stare projekty wczytują się z wartościami domyślnymi = wynik bez zmian).
 
 ## 5. Programy dodatkowe
 
@@ -102,12 +115,17 @@ szerokość wycinki ≥ 2 × odstęp znaczników od użytków (i tylko dla spadu
 | H-18 | Obrót z narzędzia dodaje się do bieżącego obrotu strony. |
 | H-19 | Nazwa wyniku porównywana z wejściem bez katalogu i bez wielkości liter. |
 | H-20 | Kody EAN jako wektory; błędne wiersze pliku tekstowego pomijane i raportowane. |
+| H-22 | Wycinka zastępuje odstęp między środkowymi kolumnami (wierszami); automatyczna siatka bierze największą liczbę kolumn mieszczącą się z wycinką — może wyjść liczba nieparzysta, wtedy wycinki nie ma (z uwagą). |
+| H-23 | Znacznik wycinki: linia w osi wycinki — dwa odcinki o zadanej długości od krawędzi pola zadruku albo, przy 0, przez całe pole zadruku. Nie przesuwa się z kalibracją verso. |
+| H-24 | Docięcie TrimBox usuwa z tej krawędzi także spad (strona kończy się tuż za linią cięcia). Krawędź liczona w orientacji strony po jej obrocie /Rotate. |
+| H-25 | Odstęp znaczników cięcia liczony od krawędzi spadu; domyślnie 0,8 mm (dotychczasowa wartość Studio). |
 | — | „Usuń zaznaczone wiersze” w Studio = rola Pomiń (strona zostaje w pliku i może wrócić). |
 | — | „Wykonaj tylko aktywny arkusz” w trybie dwustronnym obejmuje recto i verso tego arkusza. |
 
 ## 7. Proponowana kolejność dalszych prac
 
-1. Znaczniki: wycinka (reguła parzystych kolumn), docięcie TrimBox, dodatkowe marginesy — reguły są opisane w tekstach.
+1. ~~Znaczniki: wycinka, docięcie TrimBox~~ (zrobione). Dalej: znaczniki brutto, pasery, opis impozycji (nazwa pliku,
+   arkusz, data), reguła spadów przy wycince i apla z okna Marginesy.
 2. Rozmiar wynikowego PDF (papier/pole zadruku/płyta, chwyt) — wymaga modelu chwytu i płyty.
 3. Wakaty w tabeli stron i wstawianie/zamiana plików.
 4. Kody CODE128 i QR (normy publiczne), skalowanie, dodawanie spadów i wstawianie stron jako programy dodatkowe.

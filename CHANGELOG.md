@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Marks from the final Imp4: centre cut gutter („Wycinka”, W) — vertical/horizontal width, applied only for an even
+  number of columns/rows (otherwise a preflight and status-bar note), axis mark with length or across the print area;
+  extra TrimBox hair crop („Docięcie TrimBox”, T) — left on even pages, right on odd; cut-mark offset, length and
+  width (N); „Wyłącz wszystkie”. Click toggles, right click opens parameters. Rules in `marks.py`, tests in
+  `tests/test_marks.py`. New `.psimp` settings are optional; defaults give the previous output.
+
 - Mapped the final Impozycjoner 4.0.4.0 from its UI texts (REA static analysis, nothing executed) and compared it
   with Studio: `docs/imp4-wersja-finalna.md`.
 - Added the „Programy dodatkowe” tab (`tools_ui.py`, `pdftools.py`, `pageops.py`): split into single pages

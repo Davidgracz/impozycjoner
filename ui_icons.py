@@ -87,6 +87,15 @@ def draw(name, size=30):
     elif name == 'numbers':
         _page(d, (6*u, 3*u, 24*u, 27*u))
         d.text((14*u, 17*u), '12', fill=INK, anchor='mm', font=_font(int(10*u)))
+    elif name == 'gutter':  # dwie pary użytków rozdzielone szerszym odstępem z linią w osi
+        for x0 in (2, 8, 18, 24):
+            d.rectangle((x0*u, 6*u, (x0+4.5)*u, 24*u), fill=BACK, outline=DARK, width=SCALE)
+        d.line([(15*u, 1*u), (15*u, 7*u)], fill=INK, width=SCALE*2)
+        d.line([(15*u, 23*u), (15*u, 29*u)], fill=INK, width=SCALE*2)
+    elif name == 'trimcrop':  # rozkładówka z włosowym przycięciem przy grzbiecie
+        _page(d, (3*u, 5*u, 14.5*u, 25*u), fold=False)
+        _page(d, (15.5*u, 5*u, 27*u, 25*u), fold=False)
+        d.rectangle((13*u, 5*u, 17*u, 25*u), fill=(214, 69, 65))
     else:
         raise ValueError(f'Nieznana ikona: {name}')
     return img.resize((size, size), Image.Resampling.LANCZOS)

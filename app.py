@@ -20,7 +20,25 @@ from duplex_test_sheet import create_duplex_test_pdf, correction_from_front_erro
 from economic_csv import write_economic_csv
 from crop_editor import CropEditor
 from ui_icons import draw as draw_icon
-from engine import RUN_MODES, RUN_ALL
+from engine import RUN_MODES, RUN_ALL, gutter_notes
+
+# Parametry znaczników (okna „definicji” w Imp4) trzymane poza polami wstęgi.
+MARK_PARAMS = ('mark_offset', 'mark_length', 'mark_width_pt', 'gutter_v', 'gutter_h', 'gutter_marks',
+               'gutter_mark_length', 'gutter_mark_pt', 'trim_crop_pt')
+MARK_DIALOGS = {
+    'cut': ('Linie cięcia (znaczniki netto)', (
+        ('mark_offset', 'Odstęp znaczników od użytków (od spadu) [mm]'),
+        ('mark_length', 'Długość kreski [mm]'),
+        ('mark_width_pt', 'Grubość kreski [pt]'))),
+    'gutter': ('Wycinka środkowa', (
+        ('gutter_v', 'Szerokość wycinki pionowej [mm] (parzysta liczba kolumn)'),
+        ('gutter_h', 'Szerokość wycinki poziomej [mm] (parzysta liczba wierszy)'),
+        ('gutter_marks', 'Rysuj znacznik w osi wycinki'),
+        ('gutter_mark_length', 'Długość znacznika [mm] (0 = przez całe pole zadruku)'),
+        ('gutter_mark_pt', 'Grubość znacznika [pt]'))),
+    'trimcrop': ('Dodatkowe docięcie TrimBox', (
+        ('trim_crop_pt', 'Szerokość docięcia [pt] (z lewej na parzystych, z prawej na nieparzystych)'),)),
+}
 from naming import add_imposition_phrase, output_name_problem
 import table_actions
 from tools_ui import PdfToolsFrame
@@ -218,6 +236,10 @@ class App(tk.Tk):
         self.symbolic_var = tk.BooleanVar(value=False)
         self.marks_var = tk.BooleanVar(value=True)
         self.labels_var = tk.BooleanVar(value=False)
+        self.gutter_var = tk.BooleanVar(value=False)
+        self.trimcrop_var = tk.BooleanVar(value=False)
+        defaults = Settings()
+        self.mark_params = {key: getattr(defaults, key) for key in MARK_PARAMS}
         self.status_text = tk.StringVar(value='')
         self.stats_text = tk.StringVar(value='Oczekiwanie na pliki PDF')
 
@@ -291,6 +313,9 @@ class App(tk.Tk):
         self.bind('<Control-o>', lambda e: self.add_files())
         self.bind('<Control-s>', lambda e: self.save_project())
         # Skróty jak w Impozycjonerze 4: Ctrl+N nowa impozycja, Ctrl+W wczytaj projekt, Shift+Ctrl+S zapisz jako.
+        for key, var in (('n', self.marks_var), ('w', self.gutter_var), ('t', self.trimcrop_var)):
+            self.bind(f'<KeyPress-{key}>', lambda e, v=var: self._mark_shortcut(e, v))
+            self.bind(f'<KeyPress-{key.upper()}>', lambda e, v=var: self._mark_shortcut(e, v))
         self.bind('<Control-n>', lambda e: self.new_project())
         self.bind('<Control-w>', lambda e: self.load_project())
         self.bind('<Control-S>', lambda e: self.save_project(ask=True))
@@ -552,12 +577,18 @@ class App(tk.Tk):
         title.pack(side='left', fill='y', padx=(0, 4))
         marks = ttk.Frame(strip, style='Panel.TFrame')
         marks.pack(side='left', fill='y')
-        for icon, text, var in (('marks', 'Linie\ncięcia', self.marks_var),
-                                ('numbers', 'Numery\nstron', self.labels_var)):
-            ttk.Checkbutton(marks, text=text, image=self._icon(icon), compound='top', variable=var,
-                            style='Tool.Toolbutton', width=7,
-                            command=self.schedule_refresh).pack(fill='x', pady=1)
-        ttk.Label(marks, text='w PDF', style='Muted.TLabel').pack(pady=(4, 0))
+        # Jak w Imp4: każdy znacznik ma skrót jedną literą; prawy przycisk — parametry znacznika.
+        for icon, text, var, kind in (('marks', 'Linie\ncięcia (N)', self.marks_var, 'cut'),
+                                      ('gutter', 'Wycinka\n(W)', self.gutter_var, 'gutter'),
+                                      ('trimcrop', 'Docięcie\nTrimBox (T)', self.trimcrop_var, 'trimcrop'),
+                                      ('numbers', 'Numery\nstron', self.labels_var, None)):
+            button = ttk.Checkbutton(marks, text=text, image=self._icon(icon), compound='top', variable=var,
+                                     style='Tool.Toolbutton', width=9, command=self.schedule_refresh)
+            button.pack(fill='x', pady=1)
+            if kind:
+                button.bind('<Button-3>', lambda e, k=kind: self.open_mark_settings(k))
+        ttk.Button(marks, text='Wyłącz\nwszystkie', command=self.marks_all_off).pack(fill='x', pady=(6, 1))
+        ttk.Label(marks, text='PPM = parametry', style='Muted.TLabel').pack(pady=(4, 0))
 
     # --- Synchronizacja „Rodzaj arkuszy” ↔ tryb/odwracanie -----------------------------------------
 
@@ -835,6 +866,9 @@ class App(tk.Tk):
         self.flip_var.set(s.flip)
         self.marks_var.set(s.crop_marks)
         self.labels_var.set(s.show_page_labels)
+        self.gutter_var.set(s.gutter_on)
+        self.trimcrop_var.set(s.trim_crop)
+        self.mark_params = {key: getattr(s, key) for key in MARK_PARAMS}
         self._suspend_events=False
         self._render_jobs()
 
@@ -900,7 +934,9 @@ class App(tk.Tk):
         return Settings(**data,mode=self.mode_var.get(), rotation=self.rot_var.get(),
                         scale_mode=self.scale_var.get(),
                         flip=self.flip_var.get(),crop_marks=self.marks_var.get(),
-                        show_page_labels=self.labels_var.get())
+                        show_page_labels=self.labels_var.get(),
+                        gutter_on=self.gutter_var.get(), trim_crop=self.trimcrop_var.get(),
+                        **self.mark_params)
 
     def apply_preset(self):
         if self._suspend_events:return
@@ -1350,7 +1386,9 @@ class App(tk.Tk):
             used = sum(1 for p in side.placements if p.source is not None) if side else 0
             self.slots_title.set(f'Tabela użytków ({used})' + ('  •  REJESTRACJA przód + tył' if self.register_overlay and s.mode == 'Dwustronnie' else ''))
             self.side_text.set(f'Arkusz {side.sheet_number} • {"Recto" if side.side == 0 else "Verso"}' if side else 'Brak stron')
-            self.stats_text.set(f'{details}   •   arkusz {s.sheet_w:g} × {s.sheet_h:g} mm' + ('  •  MIX NAKŁADÓW' if s.mode == 'Ekonomiczny' else ''))
+            notes = gutter_notes(s)
+            self.stats_text.set(f'{details}   •   arkusz {s.sheet_w:g} × {s.sheet_h:g} mm' + ('  •  MIX NAKŁADÓW' if s.mode == 'Ekonomiczny' else '')
+                                + ''.join(f'   •   {note}' for note in notes))
         except Exception as e:
             self.stats_text.set(f'Błąd konfiguracji / PDF: {e}')
             self.side_text.set('Nie można wyświetlić')
@@ -1474,6 +1512,75 @@ class App(tk.Tk):
         if next_idx!=self.side_index:
             self.side_index=next_idx
             self.refresh()
+
+    # --- Znaczniki (pasek po prawej) ----------------------------------------------------------------
+
+    def _mark_shortcut(self, event, var):
+        """Litera przełącza znacznik, ale nie wtedy, gdy operator pisze w polu."""
+        if isinstance(event.widget, (tk.Entry, ttk.Entry, tk.Text, ttk.Spinbox, ttk.Combobox, tk.Listbox)):
+            return
+        if event.state & 0x4:  # z Ctrl — skróty Ctrl+N / Ctrl+W obsługują inne wiązania
+            return
+        var.set(not var.get())
+        self.schedule_refresh()
+        return 'break'
+
+    def marks_all_off(self):
+        for var in (self.marks_var, self.gutter_var, self.trimcrop_var, self.labels_var):
+            var.set(False)
+        self.schedule_refresh()
+
+    def open_mark_settings(self, kind):
+        """Okno parametrów znacznika; zły wpis nie zmienia ustawień (walidacja przez silnik)."""
+        title, rows = MARK_DIALOGS[kind]
+        dlg = tk.Toplevel(self)
+        dlg.title(title)
+        dlg.configure(background=BG)
+        dlg.transient(self)
+        body = ttk.Frame(dlg, padding=16)
+        body.pack(fill='both', expand=True)
+        ttk.Label(body, text=title, style='Header.TLabel').grid(row=0, column=0, columnspan=2, sticky='w', pady=(0, 8))
+        values = {}
+        for row, (key, label) in enumerate(rows, start=1):
+            current = self.mark_params[key]
+            if isinstance(current, bool):
+                values[key] = tk.BooleanVar(value=current)
+                ttk.Checkbutton(body, text=label, variable=values[key]).grid(row=row, column=0, columnspan=2,
+                                                                             sticky='w', pady=2)
+            else:
+                values[key] = tk.StringVar(value=f'{current:g}')
+                ttk.Label(body, text=label).grid(row=row, column=0, sticky='w', pady=2)
+                ttk.Entry(body, textvariable=values[key], width=9).grid(row=row, column=1, sticky='e', padx=(10, 0))
+        if kind == 'gutter':
+            ttk.Label(body, text='Wycinka jest uwzględniana tylko wtedy, gdy to możliwe: pionowa przy parzystej '
+                                 'liczbie kolumn, pozioma przy parzystej liczbie wierszy. Inaczej preflight pokaże uwagę.',
+                      style='Muted.TLabel', wraplength=430).grid(row=len(rows) + 1, column=0, columnspan=2,
+                                                                 sticky='w', pady=(8, 0))
+        if kind == 'trimcrop':
+            ttk.Label(body, text='Uwaga przy rozkładówkach środkowych: zbyt duże docięcie usunie widoczny '
+                                 'fragment elementu leżącego na obu stronach.', style='Muted.TLabel',
+                      wraplength=430).grid(row=len(rows) + 1, column=0, columnspan=2, sticky='w', pady=(8, 0))
+
+        def save():
+            new = dict(self.mark_params)
+            try:
+                for key, var in values.items():
+                    if isinstance(var, tk.BooleanVar):
+                        new[key] = var.get()
+                    else:
+                        new[key] = float(var.get().strip().replace(',', '.'))
+                validate(replace(self._read_fields(), **new))
+            except ValueError as exc:
+                messagebox.showerror(title, str(exc) if str(exc) and 'could not convert' not in str(exc)
+                                     else 'Wpisz liczbę.', parent=dlg)
+                return
+            self.mark_params = new
+            dlg.destroy()
+            self.schedule_refresh()
+        actions = ttk.Frame(body)
+        actions.grid(row=len(rows) + 2, column=0, columnspan=2, sticky='e', pady=(12, 0))
+        ttk.Button(actions, text='Anuluj', command=dlg.destroy).pack(side='right')
+        ttk.Button(actions, text='Zastosuj', style='Accent.TButton', command=save).pack(side='right', padx=(0, 6))
 
     # --- Funkcje wzorowane na oknie głównym Impozycjonera 4 -------------------------------------------
 
