@@ -21,7 +21,7 @@ from pathlib import Path
 
 MODES = ('Jednostronnie', 'Dwustronnie', 'Broszura', 'Ekonomiczny')
 ROTATIONS = ('Auto', '0', '90', '180', '270')
-SCALE_MODES = ('Bez skalowania', 'Kadruj 1:1', 'Dopasuj', 'Wypełnij')
+SCALE_MODES = ('Bez skalowania', 'Kadruj 1:1', 'Dopasuj', 'Wypełnij', 'Wypełnij ze spadem')
 
 # pole -> (minimum, maksimum) w mm
 _MM_RANGES = {
@@ -35,8 +35,10 @@ _MM_RANGES = {
 _INT_RANGES = {'columns': (0, 500), 'rows': (0, 500)}
 _CHOICES = {'mode': MODES, 'rotation': ROTATIONS, 'scale_mode': SCALE_MODES}
 _BOOLS = ('auto_gross', 'crop_marks', 'show_page_labels')
+# Pola dodane później: opcjonalne, żeby starsze szablony użytkownika nadal się wczytywały.
+_OPTIONAL_BOOLS = {'white_trim': False}
 
-FIELDS = tuple(_MM_RANGES) + tuple(_INT_RANGES) + tuple(_CHOICES) + _BOOLS
+FIELDS = tuple(_MM_RANGES) + tuple(_INT_RANGES) + tuple(_CHOICES) + _BOOLS + tuple(_OPTIONAL_BOOLS)
 
 
 def template_path() -> Path:
@@ -63,7 +65,7 @@ def _clean(values) -> dict:
     unknown = sorted(set(values) - set(FIELDS))
     if unknown:
         raise ValueError(f'Nieznane pola szablonu: {", ".join(unknown)}')
-    missing = [key for key in FIELDS if key not in values]
+    missing = [key for key in FIELDS if key not in values and key not in _OPTIONAL_BOOLS]
     if missing:
         raise ValueError(f'Brakujące pola szablonu: {", ".join(missing)}')
     clean = {}
@@ -87,6 +89,11 @@ def _clean(values) -> dict:
         if type(values[key]) is not bool:
             raise ValueError(f'{key}: wartość musi być prawda/fałsz.')
         clean[key] = values[key]
+    for key, default in _OPTIONAL_BOOLS.items():
+        value = values.get(key, default)
+        if type(value) is not bool:
+            raise ValueError(f'{key}: wartość musi być prawda/fałsz.')
+        clean[key] = value
     return clean
 
 
@@ -95,7 +102,8 @@ def _machine(value) -> str | None:
 
 
 def _sheet_job(name: str, trim_w: float, trim_h: float, mode: str, *,
-               bleed: float = 2.0, scale_mode: str = 'Bez skalowania') -> tuple[str, dict]:
+               bleed: float = 2.0, scale_mode: str = 'Bez skalowania',
+               white_trim: bool = False) -> tuple[str, dict]:
     """Punkt startowy: SRA3 450 × 320 mm, marginesy 6 mm, odstępy 5 mm, znaczniki cięcia."""
     return name, {
         'settings': {
@@ -106,7 +114,7 @@ def _sheet_job(name: str, trim_w: float, trim_h: float, mode: str, *,
             'margin_x': 6.0, 'margin_y': 6.0, 'gap_x': 5.0, 'gap_y': 5.0,
             'rotation': 'Auto', 'columns': 0, 'rows': 0,
             'mode': mode, 'scale_mode': scale_mode,
-            'crop_marks': True, 'show_page_labels': False,
+            'crop_marks': True, 'show_page_labels': False, 'white_trim': white_trim,
         },
         'machine': None,
     }
@@ -119,6 +127,8 @@ BUILTIN: dict[str, dict] = dict([
     _sheet_job('Wizytówka 90×50 — SRA3 — dwustronnie', 90, 50, 'Dwustronnie'),
     _sheet_job('Wizytówka 85×55 — SRA3 — dwustronnie', 85, 55, 'Dwustronnie'),
     _sheet_job('Ulotka A6 — SRA3 — dwustronnie', 105, 148, 'Dwustronnie'),
+    _sheet_job('Ulotka A6 + 1,5 mm z A4 (bez białych marginesów) — SRA3',
+               105, 148, 'Jednostronnie', bleed=1.5, scale_mode='Wypełnij ze spadem', white_trim=True),
     _sheet_job('Ulotka DL — SRA3 — dwustronnie', 99, 210, 'Dwustronnie'),
     _sheet_job('Ulotka A5 — SRA3 — dwustronnie', 148, 210, 'Dwustronnie'),
 ])

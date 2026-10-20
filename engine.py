@@ -104,6 +104,13 @@ class Settings:
     gutter_mark_pt: float = 0.25
     trim_crop: bool = False       # dodatkowe docięcie TrimBox („crop”)
     trim_crop_pt: float = 0.5     # pt: z lewej na stronach parzystych, z prawej na nieparzystych
+    # Skalowanie z docinaniem (whitecrop.py): białe marginesy źródła nie są częścią grafiki.
+    white_trim: bool = False      # przytnij białe marginesy wokół grafiki źródła przed skalowaniem
+    white_level: int = 250        # próg bieli 1–255 (piksel jaśniejszy = biały)
+
+
+FILL_GROSS = 'Wypełnij ze spadem'  # grafika pokrywa netto + spad; spad powstaje z grafiki, nadmiar jest docinany
+SCALE_MODES = ('Bez skalowania', 'Kadruj 1:1', 'Dopasuj', 'Wypełnij', FILL_GROSS)
 
 
 @dataclass
@@ -211,8 +218,13 @@ def validate(settings: Settings):
             raise ValueError('Kalibracja rewersu musi być ustawiona co 0,1 mm.')
         if abs(value) > 20.0:
             raise ValueError('Kalibracja rewersu może wynosić maksymalnie ±20 mm.')
-    if settings.scale_mode not in ('Bez skalowania', 'Kadruj 1:1', 'Dopasuj', 'Wypełnij'):
+    if settings.scale_mode not in SCALE_MODES:
         raise ValueError('Nieznany sposób skalowania PDF')
+    if settings.white_trim and settings.scale_mode in ('Bez skalowania', 'Kadruj 1:1'):
+        raise ValueError('Przycinanie białych marginesów działa tylko ze skalowaniem: '
+                         'Dopasuj, Wypełnij albo Wypełnij ze spadem.')
+    if type(settings.white_level) is not int or not 1 <= settings.white_level <= 255:
+        raise ValueError('Próg bieli musi być liczbą całkowitą 1–255.')
     for key, low, high, label in (('mark_offset', 0, 50, 'Odstęp znaczników od użytków [mm]'),
                                   ('mark_length', 0.1, 50, 'Długość znacznika cięcia [mm]'),
                                   ('mark_width_pt', 0.05, 5, 'Grubość znacznika cięcia [pt]'),
@@ -874,7 +886,7 @@ def scaling_layout(source_w: float, source_h: float, target_w: float,
         raise ValueError('Nieprawidłowy rozmiar strony do skalowania')
     if mode == 'Dopasuj':
         scale = min(target_w/source_w, target_h/source_h)
-    elif mode == 'Wypełnij':
+    elif mode in ('Wypełnij', FILL_GROSS):
         scale = max(target_w/source_w, target_h/source_h)
     elif mode in ('Bez skalowania', 'Kadruj 1:1'):
         scale = 1.0
@@ -972,6 +984,10 @@ def _place_pdf(target: fitz.Page, p: SourcePage, slot: Slot, s: Settings,
         cy = trim.y0 + pt(new_y)
         trim = fitz.Rect(cx-target_w/2, cy-target_h/2, cx+target_w/2, cy+target_h/2)
 
+    if s.white_trim:
+        # Białe marginesy wokół grafiki nie są częścią pracy: źródłem jest wykryty obszar treści.
+        import whitecrop
+        trim = whitecrop.content_rect(original, trim, s.white_level)
     bleedbox = fitz.Rect(original.bleedbox)
     limit = media
     if (s.scale_mode != 'Kadruj 1:1' and bleedbox.contains(trim)
@@ -981,17 +997,26 @@ def _place_pdf(target: fitz.Page, p: SourcePage, slot: Slot, s: Settings,
     final_width = trim.width if angle in (0, 180) else trim.height
     final_height = trim.height if angle in (0, 180) else trim.width
     dest_w, dest_h = pt(slot.w), pt(slot.h)
-    factor, dx, dy = scaling_layout(final_width, final_height, dest_w, dest_h,
-                                    ('Bez skalowania' if s.scale_mode == 'Kadruj 1:1' else s.scale_mode))
-    # For exact-size source PDFs tolerate printer/export rounding <=0.5mm
-    # without stretching artwork in opposite dimensions.
-    base_x = pt(slot.x) + dx
-    base_y = pt(slot.y) + dy
+    if s.scale_mode == FILL_GROSS:
+        # Grafika pokrywa cały użytek brutto (netto + spad): spad powstaje z samej grafiki,
+        # nadmiar jest docinany do komórki — bez białych krawędzi.
+        b = pt(bleed_for(s))
+        factor, dx, dy = scaling_layout(final_width, final_height, dest_w + 2*b, dest_h + 2*b, FILL_GROSS)
+        base_x = pt(slot.x) - b + dx
+        base_y = pt(slot.y) - b + dy
+        needed = 0.0
+    else:
+        factor, dx, dy = scaling_layout(final_width, final_height, dest_w, dest_h,
+                                        ('Bez skalowania' if s.scale_mode == 'Kadruj 1:1' else s.scale_mode))
+        # For exact-size source PDFs tolerate printer/export rounding <=0.5mm
+        # without stretching artwork in opposite dimensions.
+        base_x = pt(slot.x) + dx
+        base_y = pt(slot.y) + dy
 
-    # Required source bleed becomes larger when shrinking a source (e.g. A4
-    # -> A6 needs 4mm source bleed to supply 2mm at output). Missing areas
-    # stay white: the engine never invents an extended image.
-    needed = pt(bleed_for(s))/factor
+        # Required source bleed becomes larger when shrinking a source (e.g. A4
+        # -> A6 needs 4mm source bleed to supply 2mm at output). Missing areas
+        # stay white: the engine never invents an extended image.
+        needed = pt(bleed_for(s))/factor
     desired = fitz.Rect(trim.x0-needed, trim.y0-needed,
                         trim.x1+needed, trim.y1+needed)
 

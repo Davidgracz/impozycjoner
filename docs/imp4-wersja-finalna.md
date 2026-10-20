@@ -103,6 +103,25 @@ role przycisków są odwrotne (klik = definicje, prawy = włącz/wyłącz). Para
 | Nałóż strony PDF (3 wersje), generator pasków densytometrycznych, kreator kalendarzy | brak |
 | Ponumeruj pliki PDF w folderze, zmiana nazw | brak |
 
+## 5a. Skalowanie, kadrowanie i spady — jak to robi wersja finalna
+
+Źródła: teksty okien (E1) oraz metadane wywołań biblioteki PDF w klasach tych okien (REA
+`inspect_managed_members`, tylko nazwy wywoływanych metod bibliotek zewnętrznych; ciał zaciemnionych metod nie czytano).
+
+| Narzędzie oryginału | Jak działa | Studio |
+|---|---|---|
+| **Skaluj (zmień rozmiar) strony** | Do wymiarów w mm albo procentowo; każdy wymiar „określony” albo „proporcjonalny”; skaluje się rozmiar TrimBox albo MediaBox; nowa strona „jak po przeskalowaniu” albo o podanym rozmiarze z wyśrodkowaniem; zakres stron. Strona jest wstawiana jako obszar o nowej szerokości/wysokości (wywołania `ImportedPageArea` + `Width/Height`), wymiary strony ustawiane wprost. | **nowe** — program „Skaluj strony” (bez „optymalizacji PDF”) |
+| **Dodaj spady** | Dla każdej krawędzi L/P/G/D: dodawany spad, szerokość wycinka, odległość wycinka od krawędzi PDF (MediaBox); spady nad albo pod stroną; podgląd z granicą TrimBox. Ta sama strona wstawiana wielokrotnie (28 obszarów), każdy przycięty z czterech stron (`ClipLeft/Right/Top/Bottom`) i ustawiony na zadany wymiar — wycinek krawędzi jest **rozciągany** na spad (brak śladów odbicia lustrzanego). | **nowe** — program „Dodaj spady” |
+| **Korekta położenia i rozmiaru obszaru netto** | Ręczne przesuwanie/zmiana ramki netto na podglądzie strony, zakres: wybrana strona / wszystkie / parzyste / nieparzyste, w pliku lub całej tabeli; „kadruj do netto” albo „do brutto = netto + 3 mm” i zapis do pliku. | częściowo — „Kadruj PDF…” (przesunięcie kadru X/Y dla pliku, tryb Kadruj 1:1) |
+| Automatyczne wykrywanie białych marginesów | **brak w oryginale** | **nowe (rozszerzenie Studio)** — „przytnij białe marginesy źródła” |
+| Montaż z dopasowaniem do netto + spad | Oryginał skaluje osobnym narzędziem, a w montażu używa TrimBox | **nowe (rozszerzenie Studio)** — tryb „Wypełnij ze spadem” |
+
+**Przepis A4 → A6 + 1,5 mm (Studio):** szablon „Ulotka A6 + 1,5 mm z A4 (bez białych marginesów) — SRA3” albo ręcznie:
+netto 105 × 148, spad 1,5, *Kadrowanie PDF → Wypełnij ze spadem* i *przytnij białe marginesy źródła*. Grafika (po
+odcięciu białej ramki) pokrywa cały użytek 108 × 151 mm; różnica proporcji jest docinana równo z obu stron.
+Pojedyncze strony A6 ze spadem: „Eksportuj pojedyncze strony” z tymi samymi ustawieniami.
+Wariant jak w oryginale (bez zmiany skali grafiki): „Dodaj spady” z odległością wycinka = szerokość białej ramki.
+
 ## 6. Decyzje własne przy nowych funkcjach (hipotezy — do sprawdzenia na działającym oryginale)
 
 | ID | Decyzja |
@@ -119,6 +138,9 @@ role przycisków są odwrotne (klik = definicje, prawy = włącz/wyłącz). Para
 | H-23 | Znacznik wycinki: linia w osi wycinki — dwa odcinki o zadanej długości od krawędzi pola zadruku albo, przy 0, przez całe pole zadruku. Nie przesuwa się z kalibracją verso. |
 | H-24 | Docięcie TrimBox usuwa z tej krawędzi także spad (strona kończy się tuż za linią cięcia). Krawędź liczona w orientacji strony po jej obrocie /Rotate. |
 | H-25 | Odstęp znaczników cięcia liczony od krawędzi spadu; domyślnie 0,8 mm (dotychczasowa wartość Studio). |
+| H-26 | Białe marginesy: render 144 ppi, piksel jaśniejszy niż próg 250/255 = biały; obszar treści zmniejszony o 1 piksel (≈ 0,18 mm), żeby na krawędzi spadu nie został jasny pasek; pusta strona = cały TrimBox. |
+| H-27 | „Dodaj spady”: wycinek [odległość, odległość + szerokość] rozciągany na pas od nowej krawędzi do początku wycinka (zakrywa biały margines przy spadach „nad stroną”); narożniki z narożnego kwadratu wycinków; TrimBox = TrimBox strony przesunięty o spad, BleedBox = MediaBox. Strony z zapisanym /Rotate są odrzucane z komunikatem. |
+| H-28 | „Wypełnij ze spadem”: skala = max(brutto/grafika) w obu osiach; spad zawsze z grafiki (ewentualny spad w źródle poza TrimBox jest pomijany); nadmiar przycinany do komórki brutto. |
 | — | „Usuń zaznaczone wiersze” w Studio = rola Pomiń (strona zostaje w pliku i może wrócić). |
 | — | „Wykonaj tylko aktywny arkusz” w trybie dwustronnym obejmuje recto i verso tego arkusza. |
 
