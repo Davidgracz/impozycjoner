@@ -14,6 +14,8 @@ from typing import Iterator
 import json
 import zipfile
 
+import marks as marks_rules
+
 import pymupdf as fitz
 
 # Role labels are persisted in project files; keep them stable across releases.
@@ -90,6 +92,18 @@ class Settings:
     crop_marks: bool = True
     show_page_labels: bool = False
     scale_mode: str = "Bez skalowania"  # Bez skalowania | Kadruj 1:1 | Dopasuj | Wypełnij
+    # Znaczniki wzorowane na Impozycjonerze 4 (marks.py). Wartości domyślne = zachowanie sprzed zmiany.
+    mark_offset: float = 0.8      # mm: odstęp znaczników cięcia od krawędzi spadu
+    mark_length: float = 3.0      # mm: długość kreski znacznika cięcia
+    mark_width_pt: float = 0.25   # pt: grubość kreski znacznika cięcia
+    gutter_on: bool = False       # wycinka środkowa
+    gutter_v: float = 0.0         # mm: szerokość wycinki pionowej (parzysta liczba kolumn)
+    gutter_h: float = 0.0         # mm: szerokość wycinki poziomej (parzysta liczba wierszy)
+    gutter_marks: bool = True     # rysuj znacznik w osi wycinki
+    gutter_mark_length: float = 5.0  # mm; 0 = przez całe pole zadruku
+    gutter_mark_pt: float = 0.25
+    trim_crop: bool = False       # dodatkowe docięcie TrimBox („crop”)
+    trim_crop_pt: float = 0.5     # pt: z lewej na stronach parzystych, z prawej na nieparzystych
 
 
 @dataclass
@@ -137,6 +151,8 @@ class Geometry:
     rotation: int
     slots: tuple[Slot, ...]
     capacity: int
+    gutter_x: float | None = None  # mm: oś wycinki pionowej, gdy została uwzględniona
+    gutter_y: float | None = None  # mm: oś wycinki poziomej
 
 
 def gross_dimensions(s: Settings) -> tuple[float, float]:
@@ -197,6 +213,17 @@ def validate(settings: Settings):
             raise ValueError('Kalibracja rewersu może wynosić maksymalnie ±20 mm.')
     if settings.scale_mode not in ('Bez skalowania', 'Kadruj 1:1', 'Dopasuj', 'Wypełnij'):
         raise ValueError('Nieznany sposób skalowania PDF')
+    for key, low, high, label in (('mark_offset', 0, 50, 'Odstęp znaczników od użytków [mm]'),
+                                  ('mark_length', 0.1, 50, 'Długość znacznika cięcia [mm]'),
+                                  ('mark_width_pt', 0.05, 5, 'Grubość znacznika cięcia [pt]'),
+                                  ('gutter_v', 0, 500, 'Szerokość wycinki pionowej [mm]'),
+                                  ('gutter_h', 0, 500, 'Szerokość wycinki poziomej [mm]'),
+                                  ('gutter_mark_length', 0, 500, 'Długość znacznika wycinki [mm]'),
+                                  ('gutter_mark_pt', 0.05, 5, 'Grubość znacznika wycinki [pt]'),
+                                  ('trim_crop_pt', 0, 20, 'Szerokość docięcia TrimBox [pt]')):
+        value = getattr(settings, key)
+        if type(value) not in (int, float) or not isfinite(value) or not low <= value <= high:
+            raise ValueError(f'{label}: dozwolone {low:g}–{high:g}')
 
 
 def geometry(s: Settings) -> Geometry:
@@ -214,22 +241,34 @@ def geometry(s: Settings) -> Geometry:
     for angle in ([0, 90] if s.rotation == 'Auto' else [int(s.rotation)]):
         w, h = (s.trim_w, s.trim_h) if angle in (0, 180) else (s.trim_h, s.trim_w)
         cell_w, cell_h = w + 2*bleed_for(s), h + 2*bleed_for(s)
-        auto_cols = max(0, floor((available_w+s.gap_x+1e-8)/(cell_w+s.gap_x)))
-        auto_rows = max(0, floor((available_h+s.gap_y+1e-8)/(cell_h+s.gap_y)))
+        on = s.gutter_on
+        if on and (s.gutter_v or s.gutter_h):
+            auto_cols = marks_rules.auto_count(available_w, cell_w, s.gap_x, s.gutter_v, on)
+            auto_rows = marks_rules.auto_count(available_h, cell_h, s.gap_y, s.gutter_h, on)
+        else:  # dokładnie dotychczasowy rachunek
+            auto_cols = max(0, floor((available_w+s.gap_x+1e-8)/(cell_w+s.gap_x)))
+            auto_rows = max(0, floor((available_h+s.gap_y+1e-8)/(cell_h+s.gap_y)))
         cols = s.columns if s.columns else auto_cols
         rows = s.rows if s.rows else auto_rows
-        used_w = cols*cell_w + (cols-1)*s.gap_x
-        used_h = rows*cell_h + (rows-1)*s.gap_y
+        used_w = marks_rules.axis_length(cols, cell_w, s.gap_x, s.gutter_v, on)
+        used_h = marks_rules.axis_length(rows, cell_h, s.gap_y, s.gutter_h, on)
         if cols < 1 or rows < 1 or used_w > available_w+1e-7 or used_h > available_h+1e-7:
             continue
         slots = []
-        left = s.margin_x + (available_w-used_w)/2 + bleed_for(s)
-        top = s.margin_y + (available_h-used_h)/2 + bleed_for(s)
+        grid_x = s.margin_x + (available_w-used_w)/2
+        grid_y = s.margin_y + (available_h-used_h)/2
+        left = grid_x + bleed_for(s)
+        top = grid_y + bleed_for(s)
+        xs = marks_rules.axis_offsets(cols, cell_w, s.gap_x, s.gutter_v, on)
+        ys = marks_rules.axis_offsets(rows, cell_h, s.gap_y, s.gutter_h, on)
         for row in range(rows):
             for col in range(cols):
-                slots.append(Slot(left+col*(cell_w+s.gap_x),
-                                  top+row*(cell_h+s.gap_y), w, h, angle, col, row))
-        candidates.append(Geometry(cols, rows, angle, tuple(slots), cols*rows))
+                slots.append(Slot(left+xs[col], top+ys[row], w, h, angle, col, row))
+        gutter_x = (marks_rules.gutter_center(grid_x, cols, cell_w, s.gap_x, s.gutter_v)
+                    if marks_rules.gutter_applies(cols, s.gutter_v, on) else None)
+        gutter_y = (marks_rules.gutter_center(grid_y, rows, cell_h, s.gap_y, s.gutter_h)
+                    if marks_rules.gutter_applies(rows, s.gutter_h, on) else None)
+        candidates.append(Geometry(cols, rows, angle, tuple(slots), cols*rows, gutter_x, gutter_y))
     if not candidates:
         raise ValueError('Użytki nie mieszczą się na arkuszu: zmniejsz wymiary/marginesy lub siatkę')
     return max(candidates, key=lambda g: (g.capacity, -(g.rotation == 90)))
@@ -761,22 +800,52 @@ def overlapping_uses(side: SheetSide, s: Settings) -> list[tuple[int, int]]:
 def _draw_marks(page: fitz.Page, slot: Slot, s: Settings):
     """Create slim vector trim marks separated from bleed when space permits."""
     x, y, w, h = slot.x, slot.y, slot.w, slot.h
-    # Do not print black into bleed. Each mark begins 0.8mm after bleed.
-    offset = bleed_for(s) + 0.8
-    length = 3.0
-    rect = ((0, 0, s.sheet_w, s.sheet_h))
+    # Do not print black into bleed. Each mark begins `mark_offset` (default 0.8 mm) after bleed.
+    offset = bleed_for(s) + s.mark_offset
+    length = s.mark_length
+    width = s.mark_width_pt
     for cx in (x, x+w):
         direction = -1 if cx == x else 1
         a, b = cx+direction*offset, cx+direction*(offset+length)
         if min(a, b) >= 0 and max(a, b) <= s.sheet_w:
             for yy in (y, y+h):
-                page.draw_line((pt(a), pt(yy)), (pt(b), pt(yy)), color=(0,0,0), width=0.25)
+                page.draw_line((pt(a), pt(yy)), (pt(b), pt(yy)), color=(0,0,0), width=width)
     for cy in (y, y+h):
         direction = -1 if cy == y else 1
         a, b = cy+direction*offset, cy+direction*(offset+length)
         if min(a, b) >= 0 and max(a, b) <= s.sheet_h:
             for xx in (x, x+w):
-                page.draw_line((pt(xx), pt(a)), (pt(xx), pt(b)), color=(0,0,0), width=0.25)
+                page.draw_line((pt(xx), pt(a)), (pt(xx), pt(b)), color=(0,0,0), width=width)
+
+
+def gutter_mark_lines(s: Settings) -> list[tuple[tuple[float, float], tuple[float, float]]]:
+    """Odcinki znaczników wycinki w mm ((x0, y0), (x1, y1)); pusta lista, gdy wycinki nie ma (H-23)."""
+    if not (s.gutter_on and s.gutter_marks) or s.mode == 'Broszura':
+        return []
+    g = geometry(s)
+    lines = []
+    if g.gutter_x is not None:
+        for a, b in marks_rules.gutter_mark_segments(g.gutter_x, s.margin_y, s.sheet_h - s.margin_y,
+                                                     s.gutter_mark_length):
+            lines.append(((g.gutter_x, a), (g.gutter_x, b)))
+    if g.gutter_y is not None:
+        for a, b in marks_rules.gutter_mark_segments(g.gutter_y, s.margin_x, s.sheet_w - s.margin_x,
+                                                     s.gutter_mark_length):
+            lines.append(((a, g.gutter_y), (b, g.gutter_y)))
+    return lines
+
+
+def gutter_notes(s: Settings) -> list[str]:
+    """Wyjaśnienie, dlaczego włączona wycinka nie została uwzględniona (zamiast cichego pominięcia)."""
+    if not s.gutter_on or s.mode == 'Broszura':
+        return ['Wycinka nie dotyczy trybu Broszura.'] if s.gutter_on and (s.gutter_v or s.gutter_h) else []
+    g = geometry(s)
+    notes = []
+    if s.gutter_v > 0 and g.gutter_x is None:
+        notes.append(f'Wycinka pionowa pominięta: liczba kolumn ({g.cols}) nie jest parzysta.')
+    if s.gutter_h > 0 and g.gutter_y is None:
+        notes.append(f'Wycinka pozioma pominięta: liczba wierszy ({g.rows}) nie jest parzysta.')
+    return notes
 
 
 def _rotate_point(x: float, y: float, width: float, height: float,
@@ -943,6 +1012,17 @@ def _place_pdf(target: fitz.Page, p: SourcePage, slot: Slot, s: Settings,
                        trim.x0 + max(x for x, _ in orig_corners),
                        trim.y0 + max(y for _, y in orig_corners))
     visible = desired & limit & bounds
+    if s.trim_crop and s.trim_crop_pt > 0:
+        # Docięcie TrimBox: krawędź liczona w orientacji strony widocznej dla operatora (po /Rotate).
+        side_name = marks_rules.trim_crop_side(p.index + 1)
+        tw, th = trim.width, trim.height
+        aw, ah = (th, tw) if original_angle in (90, 270) else (tw, th)
+        big = 1e6
+        x0a, x1a = (s.trim_crop_pt, big) if side_name == 'left' else (-big, aw - s.trim_crop_pt)
+        kept = [_inverse_rotate_point(xa, ya, tw, th, original_angle)
+                for xa, ya in ((x0a, -big), (x1a, -big), (x0a, ah + big), (x1a, ah + big))]
+        visible = visible & fitz.Rect(trim.x0 + min(x for x, _ in kept), trim.y0 + min(y for _, y in kept),
+                                      trim.x0 + max(x for x, _ in kept), trim.y0 + max(y for _, y in kept))
     if visible.is_empty or visible.width <= 0 or visible.height <= 0:
         raise ValueError(f'{Path(p.path).name}: nieprawidłowy obszar po skalowaniu i kadrowaniu')
 
@@ -979,6 +1059,8 @@ def render_side(side: SheetSide, sources: dict[str, fitz.Document], s: Settings,
             txt = f'{item.source.index+1}  ' if item.source else 'PUSTA  '
             target.insert_text((pt(item.slot.x+1), pt(item.slot.y+item.slot.h-1)),
                                txt, fontsize=6, color=(.3,.3,.3), overlay=True)
+    for (x0, y0), (x1, y1) in gutter_mark_lines(s):
+        target.draw_line((pt(x0), pt(y0)), (pt(x1), pt(y1)), color=(0, 0, 0), width=s.gutter_mark_pt)
     return out
 
 
