@@ -7,9 +7,11 @@ albo z ręcznego rachunku geometrii; NIE są obserwacjami oryginalnego programu 
 """
 import unittest
 from pathlib import Path
+from unittest import mock
 
+import engine
 from engine import (Job, Settings, ROLE_AUTO, ROLE_BACK, ROLE_FRONT, ROLE_SHARED, ROLE_SKIP,
-                    _duplex_pairs, geometry, plan_sides, validate)
+                    Slot, _draw_marks, _duplex_pairs, geometry, plan_sides, pt, scaling_layout, validate)
 
 TWO_UP = dict(sheet_w=190, sheet_h=60, trim_w=90, trim_h=50, bleed=0,
               margin_x=4, margin_y=4, gap_x=0, gap_y=0, crop_marks=False)
@@ -180,6 +182,67 @@ class BookletCharacterisation(unittest.TestCase):
     def test_all_pages_skipped_is_an_error(self):
         with self.assertRaises(ValueError):
             self.plan([Job('/k/b.pdf', role=ROLE_SKIP)], **{'/k/b.pdf': 4})
+
+
+class RecordingPage:
+    """Atrapa strony PDF zapisująca wywołania draw_line (tylko do testu geometrii znaczników)."""
+
+    def __init__(self):
+        self.lines = []
+
+    def draw_line(self, a, b, color=None, width=None):
+        self.lines.append((a, b, color, width))
+
+
+class MarksCharacterisation(unittest.TestCase):
+    S = Settings(**TWO_UP)
+
+    def test_full_set_of_eight_hairline_marks_per_item(self):
+        page = RecordingPage()
+        _draw_marks(page, Slot(5, 5, 90, 50, 0, 0, 0), self.S)
+        self.assertEqual(len(page.lines), 8)
+        self.assertTrue(all(w == 0.25 and c == (0, 0, 0) for _, _, c, w in page.lines))
+        # lewa dolna: pozioma kreska 3 mm kończąca się 0,8 mm od krawędzi użytku (spad = 0)
+        rounded = [tuple(round(v, 6) for v in (*a, *b)) for a, b, _, _ in page.lines]
+        self.assertIn(tuple(round(v, 6) for v in (pt(4.2), pt(55), pt(1.2), pt(55))), rounded)
+
+    def test_marks_that_would_leave_the_sheet_are_not_drawn(self):
+        page = RecordingPage()
+        _draw_marks(page, Slot(1, 5, 90, 50, 0, 0, 0), self.S)  # lewe znaczniki wyszłyby poza arkusz
+        self.assertEqual(len(page.lines), 6)
+
+    def test_marks_start_after_the_bleed(self):
+        page = RecordingPage()
+        s = Settings(**{**TWO_UP, 'bleed': 2})
+        _draw_marks(page, Slot(10, 10, 90, 50, 0, 0, 0), s)
+        starts = sorted(round(a[0] / pt(1), 3) for a, _, _, _ in page.lines if a[1] == pt(10))
+        self.assertEqual(starts, [7.2, 102.8])  # 10 − (2 + 0,8) oraz 100 + (2 + 0,8)
+
+
+class ScalingLayoutCharacterisation(unittest.TestCase):
+    def test_fit_fill_and_none(self):
+        self.assertEqual(scaling_layout(210, 297, 105, 148.5, 'Dopasuj'), (0.5, 0.0, 0.0))
+        scale, dx, dy = scaling_layout(100, 100, 50, 100, 'Dopasuj')
+        self.assertEqual((scale, dx, dy), (0.5, 0.0, 25.0))     # letterbox w pionie
+        scale, dx, dy = scaling_layout(100, 100, 50, 100, 'Wypełnij')
+        self.assertEqual((scale, dx, dy), (1.0, -25.0, 0.0))    # kadrowanie w poziomie
+        self.assertEqual(scaling_layout(100, 100, 50, 100, 'Bez skalowania'), (1.0, -25.0, 0.0))
+
+    def test_invalid_inputs(self):
+        with self.assertRaises(ValueError):
+            scaling_layout(0, 10, 10, 10, 'Dopasuj')
+        with self.assertRaises(ValueError):
+            scaling_layout(10, 10, 10, 10, 'Rozciągnij')
+
+
+class MissingPyMuPDF(unittest.TestCase):
+    def test_clear_error_instead_of_attribute_error(self):
+        with mock.patch.object(engine, 'fitz', None):
+            for call in (lambda: engine.open_sources([Job('/k/a.pdf')]),
+                         lambda: engine.source_summary('/k/a.pdf')):
+                with self.assertRaises(RuntimeError) as ctx:
+                    call()
+                self.assertIn('PyMuPDF', str(ctx.exception))
 
 
 if __name__ == '__main__':

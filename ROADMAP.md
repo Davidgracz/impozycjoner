@@ -2,6 +2,9 @@
 
 Odniesienie: https://www.impozycjoner.pl/dokumentacja/v4
 
+Szczegółowy plan zgodności funkcjonalnej (etapy, priorytety, testy porównawcze): `docs/roadmap.md`;
+rejestr funkcji i statusów: `docs/feature-parity.md`.
+
 ## 0.1.0: MVP
 - [x] PDF import, nakłady, tabela plików
 - [x] Automatyczna siatka / obrót użytków

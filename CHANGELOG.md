@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased — Etap 0 zgodności z Impozycjonerem 4
+
+- Added per-page repeats (`Powtórzenia każdej strony`): typed by hand or read from the file name
+  (part after the last `_`, digits only, none = 1), with an undo button. Works in single-sided,
+  duplex (pairs repeat together) and single-page export; booklet mode refuses explicitly.
+- Added `naming.py` (name rules) and `commands.py` (undoable commands, no Tk/PyMuPDF).
+- `.psimp`: optional `page_repeat` per file (written only when not 1; older files load unchanged).
+- `engine.py` imports PyMuPDF lazily so planning logic can be tested without it.
+- Added `docs/feature-parity.md`, `docs/behavior-spec.md`, `docs/architecture.md`, `docs/roadmap.md`, `AGENTS.md`,
+  `scripts/parity.py` (registry lint) and `scripts/diff_planning.py` (planning regression against a git revision).
+- Added tests: name rules, commands, repeat planning, characterization of existing planning, docs lint,
+  and an end-to-end PDF test (`tests/test_repeats_pdf.py`, needs PyMuPDF).
+
 ## 0.2.6 — 2026-10-12
 
 - Replaced the email-label tab with a batch TAXI decal generator.

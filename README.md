@@ -28,6 +28,7 @@ Rozwijana **wersja alpha** niezależnej, darmowej aplikacji do impozycji PDF, wz
 - **Preflight 0.2.3**: raport ostrzega, gdy jeden PDF zawiera różne rozmiary stron (np. strony 1–12 A4 i 13–22 A6). Ostrzeżenia DPI są zgrupowane na stronę, a kompletne dane każdego problematycznego obrazu (w tym efektywne DPI po skalowaniu, położenie w pt i wymiary pikselowe) pozostają w eksporcie JSON.
 - Poprawione umieszczanie spadów przy obrocie użytków 90/180/270° i źródłowych stron PDF z /Rotate; źródłowego PDF nie rozciągamy automatycznie, jeśli format nie pasuje.
 - Zapis/odczyt projektu `.psimp` (archiwum ZIP + JSON, względne ścieżki PDF i przypisania roli każdej strony; oryginalne pliki nie są kopiowane do projektu).
+- **Powtórzenia każdej strony** (Etap 0 zgodności z Impozycjonerem 4): liczba wpisana ręcznie albo odczytana z nazwy pliku — część po ostatnim „_”, tylko cyfry, brak cyfr = 1 (np. `Arkusz_300s.pdf` → 300). Każda strona występuje N razy pod rząd; w dupleksie powtarzane są pary recto/verso; w broszurze funkcja jest jawnie niedostępna. Przycisk **Cofnij** cofa ostatnią zmianę powtórzeń.
 
 ## Ograniczenia — ważne w druku produkcyjnym
 
@@ -113,13 +114,14 @@ Wynikowy tekst/wektory nie są rasteryzowane. Fotografie zachowują istniejącą
 
 ## Architektura
 
-- `engine.py` — geometria arkusza, plan stron, osadzanie stron PDF i eksport, format projektów.
+- `engine.py` — model, geometria arkusza, plan stron, osadzanie stron PDF i eksport, format projektów.
+- `naming.py` — reguły nazw plików (powtórzenia z nazwy); `commands.py` — komendy modelu z cofaniem (bez Tk i PyMuPDF).
 - `preflight.py` — podstawowa diagnostyka PDF i raporty TXT/JSON.
-- `labels.py` — parser wiadomości, IMAP SSL, generowanie PDF z etykietami.
-- `labels_ui.py` — zakładka do pobierania poczty, edycji etykiet i eksportu.
-- `app.py` — interfejs desktopowy (Tkinter + Pillow).
-- `tests/` — automatyczne testy regresyjne PDF.
-- `ROADMAP.md` — moduły planowane do pełnej parytetowej funkcjonalności.
+- `app.py` — interfejs desktopowy (Tkinter + Pillow); `taxi_generator.py`, `taxi_ui.py` — generator naklejek TAXI.
+- `tests/` — testy regresyjne; część (`test_naming`, `test_commands`, `test_plan_*`, `test_docs_parity`) działa bez PyMuPDF.
+- `scripts/` — `parity.py` (kontrola rejestru zgodności), `diff_planning.py` (regresja planowania względem rewizji gita).
+- `ROADMAP.md` — ogólna mapa; zgodność z Impozycjonerem 4: `docs/feature-parity.md`, `docs/behavior-spec.md`,
+  `docs/architecture.md`, `docs/roadmap.md`, zasady pracy: `AGENTS.md`.
 
 ## ArtCraft
 

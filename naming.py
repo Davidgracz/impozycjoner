@@ -11,10 +11,15 @@ Przykłady podane w pomocy oryginału (używane jako testy akceptacyjne):
   Arkusz_300s.pdf -> 300, Ulotka_dla_sklepu_500stron.pdf -> 500,
   Dyplom200.pdf -> 200, Instrukcja.pdf -> 1.
 
-Decyzje własne, NIE potwierdzone obserwacją oryginału (patrz docs/behavior-spec.md,
-hipotezy H-01…H-04): rozszerzenie „.pdf” nie jest częścią nazwy, cyfry to wyłącznie
-ASCII 0–9, kilka grup cyfr łączy się w jedną liczbę (zgodnie z dosłownym brzmieniem
-reguły), pusta część po ostatnim „_” daje 1.
+Brzmienie reguły jest dosłowne (E1): „usunięcie znaków innych niż cyfry” z wybranej
+części nazwy, więc kilka grup cyfr łączy się w jedną liczbę (plik_5x10 → 510). Zachowanie
+nie było obserwowane w działającym oryginale (brak E3).
+
+Decyzje własne, NIE potwierdzone obserwacją oryginału (docs/behavior-spec.md):
+  H-01 rozszerzenie „.pdf” nie jest częścią nazwy,
+  H-02 cyfry to wyłącznie ASCII 0–9,
+  H-03 pusta część po ostatnim „_” daje 1,
+  H-04 katalogi w ścieżce są ignorowane (oba separatory: „/” i „\\”).
 """
 from __future__ import annotations
 
