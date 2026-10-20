@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+- Mapped the final Impozycjoner 4.0.4.0 from its UI texts (REA static analysis, nothing executed) and compared it
+  with Studio: `docs/imp4-wersja-finalna.md`.
+- Added the „Programy dodatkowe” tab (`tools_ui.py`, `pdftools.py`, `pageops.py`): split into single pages
+  (`--XX`), merge, extract (range / each page / remainder / even-odd / cover and body / N pages per file), rotate,
+  duplicate, shuffle pages or leaves — vector, input never overwritten. Page ranges use the `-3, 6, 9-11, 15-` syntax.
+- Added EAN-13 / EAN-8 generator from a text file (`barcodes.py`), vector bars with GS1 check digit.
+- „WYKONAJ IMPOZYCJĘ” can run all sheets, only the active sheet, or all but the active sheet (`engine.select_sides`).
+- New „Ustawienia…” dialog: `--IMPOZYCJONER` phrase and PDF metadata (empty = file name); output names with
+  forbidden characters or equal to an input name are refused (`naming.py`).
+- Page table: multi-select and a right-click menu (select all/even/odd/invert, find first sheet with the page,
+  use the page size as the use size, skip/restore pages, remove the file's rows, open in PDF reader)
+  — logic in `table_actions.py`.
+- Shortcuts as in Imp4: Ctrl+N new imposition, Ctrl+W load project, Shift+Ctrl+S save project as.
+- A non-PDF or damaged input now gives a clear error instead of a PyMuPDF exception.
+- Without the new options, export output, project format and the TAXI module are unchanged.
+  New tests: `test_imp4_functions.py`, `test_pageops.py`, `test_pdftools.py`, `test_barcodes.py`.
+
+- Reworked the main window to follow the Impozycjoner 4 layout: light theme, ribbon tabs (Montaż akcydensów / Kadrowanie PDF / Druk cyfrowy — recto/verso; simple sheet imposition only, no book tab — the Broszura mode is hidden from the UI but old projects still load and export) with captioned groups (Użytek, Tabela K×W, Spady, Odstępy i marginesy, Arkusz, Rodzaj arkuszy).
+- "Rodzaj arkuszy" icon buttons replace the mode/flip combo boxes (single-sided, duplex long/short edge, economic, booklet).
+- Page table with one row per PDF page (S, SPDF, Nazwa pliku, Szer., Wys., Nakład, Rola), coloured per file; clicking a use on the sheet selects its page.
+- New symbolic preview ("Symbole"): coloured uses with page number:rotation and a bar on the page-head edge, drawn without rendering PDF content.
+- Summary box (pages, sheets, uses per side, unused slots, gross/net), large WYKONAJ IMPOZYCJĘ button, sheet tabs (1, 2… / 1R, 1V) under the preview, vertical marks strip, printable-area readout.
+- Engine, PDF output, project format and the TAXI module are unchanged. Added `ui_icons.py` and `tests/test_symbolic_preview.py`.
+
+- Added job templates (`job_templates.py`): one-click presets for sheet, net size, bleed, gaps, mode, rotation, scaling and marks.
+- Seven built-in starting points (business cards, A6/DL/A5 flyers on SRA3) plus user templates stored in `%APPDATA%\Impozycjoner Studio\job_templates.json`.
+- Templates never carry per-file data (original size, crop offsets) or machine calibration; a template may only reference a machine profile by name.
+- New "SZABLONY PRAC" section in the settings panel (load / save as / delete); built-in templates are read-only.
+- Added `tests/test_job_templates.py`. The engine and PDF output are unchanged.
+
 ## 0.4.1 — 2026-10-14
 
 - Reworked crop UI to source PDF → net dimensions → per-edge bleed → automatically derived gross size.

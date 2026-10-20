@@ -1,28 +1,54 @@
 """Impozycjoner Studio - desktop operator UI (Tkinter, Windows friendly)."""
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from PIL import ImageTk
+import pymupdf as fitz
 
-from engine import Job, Project, Settings, SourcePage, open_sources, economic_report, project_sides, assign_slot, swap_slots, export_pdf, export_pages, geometry, load_project, preview, save_project, source_summary, PAGE_ROLES, ROLE_AUTO, ROLE_SKIP
+from engine import Job, Project, Settings, SourcePage, open_sources, economic_report, project_sides, assign_slot, swap_slots, export_pdf, export_pages, geometry, load_project, preview, save_project, source_summary, validate, bleed_for, gross_dimensions, mm, PAGE_ROLES, ROLE_AUTO, ROLE_SKIP
+from job_templates import (BUILTIN, apply_template, is_builtin, list_templates, read_template,
+                           remove_template, store_template)
 from preflight import inspect_project
 from taxi_ui import TaxiGeneratorFrame
-from preview_labels import overlay_preview, OVERLAY_OPTIONS
+from preview_labels import overlay_preview, symbolic_preview, file_color, OVERLAY_OPTIONS
 from duplex_calibration import list_profiles, read_profile, store_profile, remove_profile
 from duplex_test_sheet import create_duplex_test_pdf, correction_from_front_error
 from economic_csv import write_economic_csv
 from crop_editor import CropEditor
+from ui_icons import draw as draw_icon
+from engine import RUN_MODES, RUN_ALL
+from naming import add_imposition_phrase, output_name_problem
+import table_actions
+from tools_ui import PdfToolsFrame
 
-BG = '#141923'
-PANEL = '#1d2531'
-PANEL_LIGHT = '#273242'
-BORDER = '#3c4859'
-TEXT = '#edf2f7'
-MUTED = '#a7b4c8'
-ACCENT = '#3ed6d0'
+# Jasny motyw zbliżony do Impozycjonera 4 (Windows, niebieski akcent).
+BG = '#eef1f5'
+PANEL = '#ffffff'
+PANEL_LIGHT = '#f6f8fb'
+RIBBON = '#fbfcfd'
+FIELD = '#ffffff'
+READONLY = '#eef1f5'
+BUTTON = '#e9edf2'
+HOVER = '#dbe6f5'
+SELECT = '#cfe0f7'
+CANVAS = '#dde2e8'
+BORDER = '#c3ccd8'
+TEXT = '#1f2933'
+MUTED = '#66768a'
+ACCENT = '#2f6fc2'
+ACCENT_DARK = '#245aa0'
+
+# Rodzaj arkuszy: wartość = tryb[|krawędź odwracania], jak przyciski wstęgi Imp4.
+SHEET_KINDS = (
+    ('Jednostronnie', 'single', 'Jednostronnie'),
+    ('Dwustronnie|Długa krawędź', 'duplex_long', 'Dwustronnie\ndługa krawędź'),
+    ('Dwustronnie|Krótka krawędź', 'duplex_short', 'Dwustronnie\nkrótka krawędź'),
+    ('Ekonomiczny', 'economic', 'Ekonomiczny\nmix nakładów'),
+)
 
 TRIM_PRESETS = {
     'Wizytówka 93 × 53 mm': (93,53),
@@ -55,8 +81,8 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title('Impozycjoner Studio 0.4.1')
-        self.geometry('1500x850')
-        self.minsize(1000, 700)
+        self.geometry('1600x900')
+        self.minsize(1220, 720)
         self.configure(background=BG)
         self.project = Project()
         # New production workflow; existing .psimp files restore their own settings.
@@ -76,6 +102,10 @@ class App(tk.Tk):
         self.preview_photo = None
         self.pending_display_error = None
         self._suspend_events = False
+        self._page_size_cache = {}
+        self.current_sides = []
+        self.current_side = None
+        self._view = None
         self._configure_style()
         self._create_layout()
         self._fill_fields()
@@ -84,245 +114,469 @@ class App(tk.Tk):
     def _configure_style(self):
         style = ttk.Style(self)
         style.theme_use('clam')
-        style.configure('.', background=BG, foreground=TEXT, fieldbackground=PANEL_LIGHT,
-                        bordercolor=BORDER, font=('Segoe UI', 10))
+        style.configure('.', background=BG, foreground=TEXT, fieldbackground=FIELD,
+                        bordercolor=BORDER, lightcolor=BG, darkcolor=BORDER, font=('Segoe UI', 9))
         style.configure('TFrame', background=BG)
         style.configure('Panel.TFrame', background=PANEL)
+        style.configure('Ribbon.TFrame', background=RIBBON)
         style.configure('TLabel', background=BG, foreground=TEXT)
         style.configure('Panel.TLabel', background=PANEL, foreground=TEXT)
+        style.configure('Ribbon.TLabel', background=RIBBON, foreground=TEXT)
+        style.configure('Caption.TLabel', background=RIBBON, foreground=MUTED, font=('Segoe UI', 8))
         style.configure('Muted.TLabel', background=PANEL, foreground=MUTED)
-        style.configure('Header.TLabel', background=PANEL, foreground=ACCENT, font=('Segoe UI', 11, 'bold'))
-        style.configure('TButton', background=PANEL_LIGHT, foreground=TEXT, padding=(11, 8))
-        style.map('TButton', background=[('active', '#36495d')])
-        style.configure('Accent.TButton', background='#168d92', foreground='white', font=('Segoe UI', 10, 'bold'))
-        style.map('Accent.TButton', background=[('active','#1db3b8')])
-        style.configure('TEntry', padding=(6, 5), insertcolor=TEXT)
-        style.configure('TCombobox', padding=(7,5), fieldbackground=PANEL_LIGHT,
-                        selectbackground=PANEL_LIGHT, selectforeground=TEXT)
-        style.map('TCombobox', fieldbackground=[('readonly', PANEL_LIGHT)], foreground=[('readonly', TEXT)])
+        style.configure('Header.TLabel', background=PANEL, foreground=ACCENT, font=('Segoe UI', 10, 'bold'))
+        style.configure('Title.TLabel', background=BG, foreground=MUTED, font=('Segoe UI', 9))
+        style.configure('Summary.TLabel', background=PANEL, foreground=TEXT, font=('Segoe UI', 9, 'bold'))
+        style.configure('TButton', background=BUTTON, foreground=TEXT, padding=(8, 4), relief='flat')
+        style.map('TButton', background=[('active', HOVER)])
+        style.configure('Quick.TButton', background=BG, foreground=TEXT, padding=(6, 2), relief='flat',
+                        borderwidth=0)
+        style.map('Quick.TButton', background=[('active', HOVER)])
+        style.configure('Accent.TButton', background=ACCENT, foreground='white', font=('Segoe UI', 9, 'bold'))
+        style.map('Accent.TButton', background=[('active', ACCENT_DARK)])
+        style.configure('Run.TButton', background=PANEL, foreground=ACCENT, bordercolor=ACCENT,
+                        lightcolor=ACCENT, darkcolor=ACCENT, borderwidth=2, relief='solid',
+                        font=('Segoe UI', 12, 'bold'), padding=(10, 14))
+        style.map('Run.TButton', background=[('active', SELECT)])
+        style.configure('Kind.Toolbutton', background=RIBBON, foreground=TEXT, padding=(6, 4),
+                        font=('Segoe UI', 8), anchor='center', justify='center', width=13)
+        style.map('Kind.Toolbutton', background=[('selected', SELECT), ('active', HOVER)],
+                  bordercolor=[('selected', ACCENT)])
+        style.configure('Tool.Toolbutton', background=PANEL, foreground=TEXT, padding=(4, 5),
+                        font=('Segoe UI', 8), anchor='center', justify='center', width=9)
+        style.map('Tool.Toolbutton', background=[('selected', SELECT), ('active', HOVER)],
+                  bordercolor=[('selected', ACCENT)])
+        style.configure('Sheet.Toolbutton', background=PANEL, foreground=TEXT, padding=(10, 2),
+                        font=('Segoe UI', 8, 'bold'))
+        style.map('Sheet.Toolbutton', background=[('selected', ACCENT), ('active', HOVER)],
+                  foreground=[('selected', 'white')])
+        style.configure('TEntry', padding=(4, 2))
+        style.configure('TSpinbox', padding=(4, 1), arrowsize=10)
+        style.map('TSpinbox', fieldbackground=[('readonly', READONLY)])
+        style.map('TEntry', fieldbackground=[('readonly', READONLY)])
+        style.configure('TCombobox', padding=(4, 1))
+        style.map('TCombobox', fieldbackground=[('readonly', FIELD)], foreground=[('readonly', TEXT)])
         style.configure('Treeview', background=PANEL, foreground=TEXT, fieldbackground=PANEL,
-                        rowheight=30, borderwidth=0)
-        style.map('Treeview', background=[('selected', '#166b77')])
-        style.configure('Treeview.Heading', background=PANEL_LIGHT, foreground=TEXT, padding=(8,7))
-        style.configure('TCheckbutton', background=PANEL, foreground=TEXT)
-        style.map('TCheckbutton', background=[('active', PANEL)])
+                        rowheight=20, borderwidth=1)
+        style.map('Treeview', background=[('selected', '#1b1b1b')], foreground=[('selected', 'white')])
+        style.configure('Treeview.Heading', background=BUTTON, foreground=TEXT, padding=(4, 2),
+                        font=('Segoe UI', 8, 'bold'))
+        style.configure('TCheckbutton', background=RIBBON, foreground=TEXT)
+        style.map('TCheckbutton', background=[('active', RIBBON)])
         style.configure('TLabelframe', background=PANEL, bordercolor=BORDER)
-        style.configure('TLabelframe.Label', background=PANEL, foreground=ACCENT)
+        style.configure('TLabelframe.Label', background=PANEL, foreground=MUTED, font=('Segoe UI', 8))
+        style.configure('Ribbon.TNotebook', background=BG, borderwidth=0, tabmargins=(6, 2, 0, 0))
+        style.configure('Ribbon.TNotebook.Tab', background=BG, foreground=TEXT, padding=(12, 4),
+                        font=('Segoe UI', 9))
+        style.map('Ribbon.TNotebook.Tab', background=[('selected', RIBBON)],
+                  foreground=[('selected', ACCENT)])
+        style.configure('TNotebook', background=BG, borderwidth=0)
+        style.configure('TNotebook.Tab', background=BG, padding=(12, 4))
+        style.map('TNotebook.Tab', background=[('selected', PANEL)], foreground=[('selected', ACCENT)])
+
+    def _icon(self, name, size=30):
+        icons = self.__dict__.setdefault('_icons', {})
+        if (name, size) not in icons:
+            icons[name, size] = ImageTk.PhotoImage(draw_icon(name, size), master=self)
+        return icons[name, size]
 
     def _button(self, parent, text, command, accent=False, **kw):
         return ttk.Button(parent, text=text, command=command,
                           style='Accent.TButton' if accent else 'TButton', **kw)
 
+    # --- Wstęga (ribbon) w stylu Impozycjonera 4 -------------------------------------------------
+
+    def _group(self, parent, caption):
+        """Ribbon group: controls on top, caption underneath, vertical divider on the right."""
+        outer = ttk.Frame(parent, style='Ribbon.TFrame', padding=(8, 4, 8, 1))
+        outer.pack(side='left', fill='y')
+        ttk.Label(outer, text=caption, style='Caption.TLabel').pack(side='bottom', pady=(2, 0))
+        inner = ttk.Frame(outer, style='Ribbon.TFrame')
+        inner.pack(side='top', fill='both', expand=True)
+        ttk.Separator(parent, orient='vertical').pack(side='left', fill='y', pady=6)
+        return inner
+
+    def _spin(self, parent, key, row, col, label=None, step=0.5, low=0, high=5000, width=7):
+        """Labelled ttk.Spinbox bound to self.variables[key], like Imp4's ▲▼ fields."""
+        if label:
+            ttk.Label(parent, text=label, style='Ribbon.TLabel').grid(row=row, column=col, sticky='e', padx=(0, 3), pady=1)
+        var = self.variables.setdefault(key, tk.StringVar())
+        spin = ttk.Spinbox(parent, textvariable=var, from_=low, to=high, increment=step, width=width,
+                           command=self.schedule_refresh)
+        spin.grid(row=row, column=col+1 if label else col, sticky='w', pady=1)
+        spin.bind('<KeyRelease>', lambda e: self.schedule_refresh())
+        spin.bind('<FocusOut>', lambda e: self.schedule_refresh())
+        self.entries[key] = spin
+        return spin
+
     def _create_layout(self):
+        self.variables = {}
+        self.entries = {}
+        self.mode_var = tk.StringVar(value='Jednostronnie')
+        self.flip_var = tk.StringVar(value='Długa krawędź')
+        self.sheet_kind = tk.StringVar(value='Jednostronnie')
+        self.symbolic_var = tk.BooleanVar(value=False)
+        self.marks_var = tk.BooleanVar(value=True)
+        self.labels_var = tk.BooleanVar(value=False)
+        self.status_text = tk.StringVar(value='')
+        self.stats_text = tk.StringVar(value='Oczekiwanie na pliki PDF')
+
         self.tabs = ttk.Notebook(self)
         self.tabs.pack(fill='both', expand=True)
         self.imposition_tab = ttk.Frame(self.tabs)
         self.taxi_tab = ttk.Frame(self.tabs)
         self.tabs.add(self.imposition_tab, text='  Impozycja PDF  ')
+        self.tools_tab = ttk.Frame(self.tabs)
+        self.tabs.add(self.tools_tab, text='  Programy dodatkowe  ')
         self.tabs.add(self.taxi_tab, text='  Generator naklejek TAXI  ')
+        self.tools_ui = PdfToolsFrame(self.tools_tab)
+        self.tools_ui.pack(fill='both', expand=True)
         self.taxi_ui = TaxiGeneratorFrame(self.taxi_tab)
         self.taxi_ui.pack(fill='both', expand=True)
-        top = ttk.Frame(self.imposition_tab, padding=(14, 11))
-        top.pack(fill='x')
-        ttk.Label(top, text='IMPOZYCJONER', font=('Segoe UI', 19, 'bold'), foreground=ACCENT).pack(side='left', padx=(0, 4))
-        ttk.Label(top, text='STUDIO 0.4.1', foreground=MUTED, font=('Segoe UI', 10)).pack(side='left', padx=(5, 16))
-        self._button(top, 'Otwórz projekt', self.load_project).pack(side='left', padx=3)
-        self._button(top, 'Zapisz projekt', self.save_project).pack(side='left', padx=3)
-        self._button(top, 'Eksportuj PDF', self.export, True).pack(side='right', padx=5)
-        self._button(top, 'Eksportuj pojedyncze strony', self.export_single_pages).pack(side='right', padx=5)
-        self._button(top, 'Preflight PDF', self.show_preflight).pack(side='right', padx=5)
-        self._button(top, 'Odśwież podgląd', self.refresh).pack(side='right', padx=5)
+        # Ustawienia pliku wynikowego (w Imp4: okno Ustawienia) — lokalne, nie trafiają do .psimp.
+        self.phrase_var = tk.BooleanVar(value=False)
+        self.meta_vars = {key: tk.StringVar() for key in ('author', 'title', 'subject', 'keywords')}
+        self.run_mode_var = tk.StringVar(value=RUN_ALL)
 
-        body = ttk.Frame(self.imposition_tab)
-        body.pack(fill='both', expand=True, padx=12, pady=(0,10))
-        body.columnconfigure(0, weight=0, minsize=320)
-        body.columnconfigure(1, weight=1)
-        body.columnconfigure(2, weight=0, minsize=310)
+        # Pasek szybkiego dostępu (jak w tytule okna Imp4).
+        quick = ttk.Frame(self.imposition_tab, padding=(6, 3))
+        quick.pack(fill='x')
+        ttk.Button(quick, text='📂 Otwórz plik pdf do impozycji', style='Quick.TButton',
+                   command=self.add_files).pack(side='left')
+        ttk.Label(quick, text='›', style='Title.TLabel').pack(side='left')
+        ttk.Button(quick, text='Wczytaj projekt', style='Quick.TButton',
+                   command=self.load_project).pack(side='left')
+        ttk.Button(quick, text='💾 Zapisz projekt', style='Quick.TButton',
+                   command=self.save_project).pack(side='left', padx=(4, 0))
+        ttk.Button(quick, text='Nowa impozycja', style='Quick.TButton',
+                   command=self.new_project).pack(side='left', padx=(4, 0))
+        ttk.Button(quick, text='Ustawienia…', style='Quick.TButton',
+                   command=self.open_output_settings).pack(side='left', padx=(4, 0))
+        self.print_area = tk.StringVar(value='')
+        self.print_area_label = ttk.Label(quick, textvariable=self.print_area, style='Title.TLabel')
+        self.print_area_label.pack(side='left', expand=True)
+        ttk.Button(quick, text='Usuń', style='Quick.TButton', command=self.delete_job_template).pack(side='right')
+        ttk.Button(quick, text='Zapisz jako…', style='Quick.TButton', command=self.save_job_template).pack(side='right')
+        ttk.Button(quick, text='Wczytaj', style='Quick.TButton', command=self.apply_job_template).pack(side='right')
+        self.template_name = tk.StringVar()
+        self.template_choices = ttk.Combobox(quick, textvariable=self.template_name,
+                                             values=self._template_names(), state='readonly', width=34)
+        self.template_choices.pack(side='right', padx=4)
+        ttk.Label(quick, text='Szablon pracy:', style='Title.TLabel').pack(side='right')
+
+        ribbon = ttk.Notebook(self.imposition_tab, style='Ribbon.TNotebook', height=104)
+        ribbon.pack(fill='x', padx=4)
+        self._ribbon_jobwork(ribbon)
+        self._ribbon_crop(ribbon)
+        self._ribbon_duplex(ribbon)
+
+        body = ttk.Frame(self.imposition_tab, padding=(6, 6, 6, 0))
+        body.pack(fill='both', expand=True)
+        body.columnconfigure(0, weight=1)
+        body.columnconfigure(1, weight=0)
         body.rowconfigure(0, weight=1)
+        self._create_preview(body)
+        self._create_pages_panel(body)
+        self._create_marks_strip(body)
 
-        jobs = ttk.Frame(body, style='Panel.TFrame', padding=12, width=335)
-        jobs.grid(row=0,column=0,sticky='nsew',padx=(0,7))
-        jobs.grid_propagate(False)
-        ttk.Label(jobs, text='PLIKI WEJŚCIOWE', style='Header.TLabel').pack(anchor='w',pady=(3,10))
-        btns = ttk.Frame(jobs, style='Panel.TFrame')
-        btns.pack(fill='x', pady=(0,8))
-        self._button(btns, '+ Dodaj PDF',self.add_files).pack(side='left', fill='x',expand=True)
-        self._button(btns, 'Usuń',self.remove_file).pack(side='left',padx=(5,0))
-        tree_frame = ttk.Frame(jobs, style='Panel.TFrame')
-        tree_frame.pack(fill='both',expand=True)
-        self.files = ttk.Treeview(tree_frame, columns=('p','copies','role'),show='tree headings',selectmode='browse')
-        self.files.heading('#0',text='Plik')
-        self.files.heading('p',text='Str.')
-        self.files.heading('copies',text='Nakład')
-        self.files.heading('role',text='Rola')
-        self.files.column('#0',width=110,stretch=True)
-        self.files.column('p',width=38,stretch=False,anchor='center')
-        self.files.column('copies',width=51,stretch=False,anchor='center')
-        self.files.column('role',width=80,stretch=False,anchor='center')
-        self.files.pack(side='left',fill='both',expand=True)
-        bar=ttk.Scrollbar(tree_frame,orient='vertical',command=self.files.yview)
-        bar.pack(side='right',fill='y')
-        self.files.configure(yscrollcommand=bar.set)
-        self.files.bind('<<TreeviewSelect>>',self._tree_selection)
-        self.files.bind('<Double-1>',lambda event:self.edit_page_roles())
-        self.selected_info=tk.StringVar(value='Wczytaj pliki PDF, aby rozpocząć montaż.')
-        ttk.Label(jobs,textvariable=self.selected_info,style='Muted.TLabel',wraplength=235,justify='left').pack(anchor='w',pady=(10,7))
-        copies_frame = ttk.Frame(jobs, style='Panel.TFrame')
-        copies_frame.pack(fill='x',pady=(0,6))
-        ttk.Label(copies_frame,text='Nakład pliku:',style='Panel.TLabel').pack(side='left')
-        self.copies_var=tk.StringVar(value='1')
-        self.copies_entry=ttk.Entry(copies_frame,textvariable=self.copies_var,width=7)
-        self.copies_entry.pack(side='left',padx=6)
-        self.copies_entry.bind('<Return>',lambda e:self.change_copies())
-        self._button(copies_frame,'Zmień',self.change_copies).pack(side='left')
-        self._button(jobs, '✂ Kadruj wybrany PDF (podgląd)', self.open_crop_editor).pack(fill='x', pady=(3, 6))
-        self._button(jobs, '📊 Plan ekonomiczny / nakłady', self.show_economic_plan).pack(fill='x', pady=(3, 6))
-        self._button(jobs, 'Przód / tył — role pliku i stron…', self.edit_page_roles,
-                     accent=True).pack(fill='x', pady=(3, 7))
-        ttk.Label(jobs,text='Role stosuje się w trybie Dwustronnie. Strony można oznaczać pojedynczo lub zakresami.',
-                  style='Muted.TLabel',wraplength=300).pack(anchor='w',pady=3)
-        reorder = ttk.Frame(jobs, style='Panel.TFrame')
-        reorder.pack(fill='x')
-        self._button(reorder,'↑ W górę',lambda:self.move_job(-1)).pack(side='left',expand=True,fill='x',padx=(0,3))
-        self._button(reorder,'↓ W dół',lambda:self.move_job(1)).pack(side='left',expand=True,fill='x')
-
-        central=ttk.Frame(body)
-        central.grid(row=0,column=1,sticky='nsew',padx=7)
-        central.rowconfigure(1,weight=1)
-        central.columnconfigure(0,weight=1)
-        toolbar=ttk.Frame(central,padding=(4,6))
-        toolbar.grid(row=0,column=0,sticky='ew')
-        ttk.Label(toolbar,text='PODGLĄD ARKUSZA', font=('Segoe UI', 11, 'bold')).pack(side='left')
-        self._button(toolbar,'Edytuj użytki (przeciągnij)',self.edit_sheet).pack(side='left',padx=5)
-        self._button(toolbar,'Rejestracja ON/OFF',self.toggle_overlay).pack(side='left',padx=4)
-        ttk.Label(toolbar, text='Nakładki:').pack(side='left',padx=(10,3))
-        self.preview_label_choice=ttk.Combobox(toolbar, textvariable=self.preview_label_mode,
-                                               values=OVERLAY_OPTIONS, state='readonly', width=15)
-        self.preview_label_choice.pack(side='left',padx=3)
-        self.preview_label_choice.bind('<<ComboboxSelected>>', lambda event:self.refresh())
-        self._button(toolbar,'▶',lambda:self.change_side(1)).pack(side='right',padx=2)
-        self._button(toolbar,'◀',lambda:self.change_side(-1)).pack(side='right',padx=2)
-        self.side_text=tk.StringVar(value='Arkusz 1 • Recto')
-        ttk.Label(toolbar,textvariable=self.side_text,foreground=MUTED).pack(side='right',padx=12)
-        self.canvas = tk.Canvas(central,background='#394455',highlightthickness=0)
-        self.canvas.grid(row=1,column=0,sticky='nsew')
-        self.canvas.bind('<Configure>',lambda e:self._display_image())
-        self.canvas.create_text(280,180,text='Dodaj pliki PDF',fill='white',font=('Segoe UI',16),tags='placeholder')
-        self.stats_text=tk.StringVar(value='Oczekiwanie na pliki PDF')
-        ttk.Label(central,textvariable=self.stats_text,foreground=MUTED).grid(row=2,column=0,sticky='ew',pady=(8,0))
-
-        controls=ttk.Frame(body,style='Panel.TFrame',padding=12,width=310)
-        controls.grid(row=0,column=2,sticky='nsew',padx=(7,0))
-        controls.grid_propagate(False)
-        ttk.Label(controls,text='USTAWIENIA MONTAŻU',style='Header.TLabel').pack(anchor='w',pady=(2,12))
-        viewport=tk.Canvas(controls,background=PANEL,highlightthickness=0)
-        viewport.pack(side='left',fill='both',expand=True)
-        scroll=ttk.Scrollbar(controls,orient='vertical',command=viewport.yview)
-        scroll.pack(side='right',fill='y')
-        viewport.configure(yscrollcommand=scroll.set)
-        form=ttk.Frame(viewport,style='Panel.TFrame')
-        window=viewport.create_window((0,0),window=form,anchor='nw')
-        form.bind('<Configure>',lambda e:viewport.configure(scrollregion=viewport.bbox('all')))
-        viewport.bind('<Configure>',lambda e:viewport.itemconfigure(window,width=e.width))
-        viewport.bind('<MouseWheel>',lambda e:viewport.yview_scroll(int(-1*e.delta/120),'units'))
-        form.bind('<MouseWheel>',lambda e:viewport.yview_scroll(int(-1*e.delta/120),'units'))
-
-        self.variables={}
-        self.entries={}
-        self.mode_var=tk.StringVar(value='Jednostronnie')
-        self._row(form,'Tryb',self.mode_var,'combo',('Jednostronnie','Dwustronnie','Broszura','Ekonomiczny'))
-        ttk.Label(form,text='Ekonomiczny = mieszaj różne pliki/nakłady na arkuszach jednostronnych,\nbez nadprodukcji i ze wspólnym formatem użytku.',
-                  style='Muted.TLabel',wraplength=255,justify='left').pack(anchor='w',pady=(3,4))
-        self._separator(form)
-        ttk.Label(form,text='ARKUSZ',style='Header.TLabel').pack(anchor='w',pady=(8,6))
-        self.preset_var=tk.StringVar(value=next(iter(PRESETS)))
-        ttk.Combobox(form,textvariable=self.preset_var,values=list(PRESETS),state='readonly').pack(fill='x',pady=3)
-        self.preset_var.trace_add('write',lambda *_:self.apply_preset())
-        self._paired(form,'Szer. arkusza (mm)','sheet_w','Wys. arkusza (mm)','sheet_h')
-        self._separator(form)
-        ttk.Label(form,text='KADROWANIE / WYMIARY',style='Header.TLabel').pack(anchor='w',pady=(8,7))
-        ttk.Label(form,text='1. ORYGINAŁ PDF — automatyczne wykrywanie',style='Panel.TLabel').pack(anchor='w',pady=(3,2))
-        self.auto_source_var=tk.BooleanVar(value=True)
-        ttk.Checkbutton(form,text='Rozmiar z każdego pliku PDF',variable=self.auto_source_var,
-                        command=self.toggle_auto_source).pack(anchor='w',pady=(0,3))
-        self._paired(form,'Szer. oryginału','source_w','Wys. oryginału','source_h')
-        ttk.Label(form,text='Podgląd pokazuje wymiary zaznaczonego PDF. Wyłącz automat, aby weryfikować rozmiar ręcznie.',
-                  style='Muted.TLabel',wraplength=255,justify='left').pack(anchor='w',pady=(0,8))
-        ttk.Label(form,text='2. WYMIAR NETTO PO DOCIĘCIU',style='Panel.TLabel').pack(anchor='w',pady=(5,2))
-        self.trim_preset_var=tk.StringVar(value='Niestandardowy')
-        ttk.Combobox(form,textvariable=self.trim_preset_var,
-                     values=list(TRIM_PRESETS),state='readonly').pack(fill='x',pady=(0,5))
-        self.trim_preset_var.trace_add('write',lambda *_:self.apply_trim_preset())
-        self._paired(form,'Szer. netto (mm)','trim_w','Wys. netto (mm)','trim_h')
-        self.variables['bleed']=tk.StringVar(value='1.5')
-        self._row(form,'Spad na stronę (mm)',self.variables['bleed'])
-        ttk.Label(form,text='3. BRUTTO = NETTO + 2 × SPAD',style='Panel.TLabel').pack(anchor='w',pady=(10,2))
-        self.auto_gross_var=tk.BooleanVar(value=True)
-        ttk.Checkbutton(form,text='Obliczaj brutto automatycznie',variable=self.auto_gross_var,
-                        command=self.toggle_auto_gross).pack(anchor='w',pady=(0,3))
-        self._paired(form,'Szer. brutto (mm)','gross_w','Wys. brutto (mm)','gross_h')
-        self.derived_bleed_var = tk.StringVar(value='Spad: 1,5 mm z każdej strony')
-        ttk.Label(form,textvariable=self.derived_bleed_var,foreground=ACCENT,
-                  wraplength=255,justify='left').pack(anchor='w',pady=(3,7))
-        self.scale_var=tk.StringVar(value='Kadruj 1:1')
-        self._row(form,'Sposób dopasowania PDF',self.scale_var,'combo',
-                  ('Kadruj 1:1','Bez skalowania','Dopasuj','Wypełnij'))
-        self.scale_var.trace_add('write',lambda *_:self.schedule_refresh())
-        ttk.Label(form,text='Kadruj 1:1 = wytnij środek oryginału bez zmiany wielkości.\nSpad wynika z różnicy brutto i netto.\nInne tryby zachowują dawne skalowanie.',
-                  style='Muted.TLabel',wraplength=255,justify='left').pack(anchor='w',pady=(3,6))
-        self.variables['gap_x']=tk.StringVar()
-        self._row(form,'Odstęp X (mm)',self.variables['gap_x'])
-        self._paired(form,'Odstęp Y (mm)','gap_y','Margines X (mm)','margin_x')
-        self.variables['margin_y']=tk.StringVar()
-        self._row(form,'Margines Y (mm)',self.variables['margin_y'])
-        self.rot_var=tk.StringVar(value='Auto')
-        self._row(form,'Obrót użytków',self.rot_var,'combo',('Auto','0','90','180','270'))
-        self._paired(form,'Kolumny (0=auto)','columns','Wiersze (0=auto)','rows')
-        self._separator(form)
-        ttk.Label(form,text='DUPLEX I ZNACZNIKI',style='Header.TLabel').pack(anchor='w',pady=(8,6))
-        self.flip_var=tk.StringVar(value='Długa krawędź')
-        self._row(form,'Odwracanie arkusza',self.flip_var,'combo',('Długa krawędź','Krótka krawędź'))
-        ttk.Label(form,text='KALIBRACJA RECTO / VERSO',style='Header.TLabel').pack(anchor='w',pady=(12,4))
-        self._paired(form,'Przesunięcie verso X (mm)','verso_shift_x',
-                     'Przesunięcie verso Y (mm)','verso_shift_y')
-        ttk.Label(form,text='Krok 0,1 mm. Współrzędne wynikowego verso: +X w prawo, +Y w dół. '
-                  'Offset przesuwa grafikę i linie cięcia, nie arkusz. Recto bez zmian.',
-                  style='Muted.TLabel',wraplength=255,justify='left').pack(anchor='w',pady=(3,8))
-        self.profile_name=tk.StringVar()
-        self.profile_choices=ttk.Combobox(form,textvariable=self.profile_name,
-                          values=list_profiles(),state='readonly')
-        self.profile_choices.pack(fill='x',pady=(2,5))
-        profile_buttons=ttk.Frame(form,style='Panel.TFrame')
-        profile_buttons.pack(fill='x',pady=(0,8))
-        self._button(profile_buttons,'Wczytaj',self.apply_duplex_profile).pack(side='left',expand=True,fill='x')
-        self._button(profile_buttons,'Zapisz',self.save_duplex_profile).pack(side='left',expand=True,fill='x',padx=3)
-        self._button(profile_buttons,'Usuń',self.delete_duplex_profile).pack(side='left',expand=True,fill='x')
-        calibration_actions=ttk.Frame(form,style='Panel.TFrame')
-        calibration_actions.pack(fill='x',pady=(5,4))
-        self._button(calibration_actions,'1. Arkusz testowy PDF',self.export_duplex_test_sheet).pack(
-            side='left',expand=True,fill='x',padx=(0,3))
-        self._button(calibration_actions,'2. Wpisz pomiar',self.open_duplex_measurement).pack(
-            side='left',expand=True,fill='x')
-        ttk.Label(form,text='Wydrukuj dwustronnie w skali 100%, przyłóż do światła i zmierz położenie znaczników tyłu względem krzyży przodu.',
-            style='Muted.TLabel',wraplength=255,justify='left').pack(anchor='w',pady=(0,9))
-        self.marks_var=tk.BooleanVar(value=True)
-        self.labels_var=tk.BooleanVar(value=False)
-        for text, var in [('Znaczniki cięcia',self.marks_var),('Numery stron (oznaczenia pomocnicze)',self.labels_var)]:
-            ttk.Checkbutton(form,text=text,variable=var,command=self.schedule_refresh).pack(anchor='w',pady=(8,2))
-        ttk.Label(form,text='Preflight sprawdza format i ostrzega o brakach spadów.\nEksport pozostaje wektorowy; sprawdź wydruk próbny.',
-                  style='Muted.TLabel',wraplength=255,justify='left').pack(anchor='w',pady=(15,25))
-        self.mode_var.trace_add('write',lambda *_:self.schedule_refresh())
-        self.rot_var.trace_add('write',lambda *_:self.schedule_refresh())
-        self.flip_var.trace_add('write',lambda *_:self.schedule_refresh())
-        bottom=ttk.Frame(self.imposition_tab,padding=(13,5))
+        bottom = ttk.Frame(self.imposition_tab, padding=(8, 3))
         bottom.pack(fill='x')
-        ttk.Label(bottom,text='Impozycjoner Studio • darmowa, niezależna implementacja • Windows',foreground=MUTED).pack(side='left')
-        ttk.Label(bottom,text='Ctrl+O – Dodaj PDF   Ctrl+R – Przód/tył   Ctrl+P – Preflight   Ctrl+E – Eksport',foreground=MUTED).pack(side='right')
-        self.bind('<Control-o>',lambda e:self.add_files())
-        self.bind('<Control-s>',lambda e:self.save_project())
-        self.bind('<Control-e>',lambda e:self.export())
-        self.bind('<Control-p>',lambda e:self.show_preflight())
-        self.bind('<Control-r>',lambda e:self.edit_page_roles())
+        ttk.Label(bottom, text='Impozycjoner Studio 0.4.1', foreground=MUTED).pack(side='left')
+        ttk.Label(bottom, textvariable=self.stats_text, foreground=MUTED).pack(side='left', padx=18)
+        ttk.Label(bottom, textvariable=self.status_text, foreground=MUTED).pack(side='right')
+
+        self.mode_var.trace_add('write', lambda *_: (self._sync_sheet_kind(), self.schedule_refresh()))
+        self.flip_var.trace_add('write', lambda *_: (self._sync_sheet_kind(), self.schedule_refresh()))
+        self.rot_var.trace_add('write', lambda *_: self.schedule_refresh())
+        self.bind('<Control-o>', lambda e: self.add_files())
+        self.bind('<Control-s>', lambda e: self.save_project())
+        # Skróty jak w Impozycjonerze 4: Ctrl+N nowa impozycja, Ctrl+W wczytaj projekt, Shift+Ctrl+S zapisz jako.
+        self.bind('<Control-n>', lambda e: self.new_project())
+        self.bind('<Control-w>', lambda e: self.load_project())
+        self.bind('<Control-S>', lambda e: self.save_project(ask=True))
+        self.bind('<Control-e>', lambda e: self.export())
+        self.bind('<Control-p>', lambda e: self.show_preflight())
+        self.bind('<Control-r>', lambda e: self.edit_page_roles())
+        self.bind('<Prior>', lambda e: self.change_side(-1))
+        self.bind('<Next>', lambda e: self.change_side(1))
+
+    def _ribbon_jobwork(self, ribbon):
+        tab = ttk.Frame(ribbon, style='Ribbon.TFrame')
+        ribbon.add(tab, text='Montaż akcydensów')
+
+        g = self._group(tab, 'Użytek netto [mm] i obrót')
+        self._spin(g, 'trim_w', 0, 0, 'Poziomo:')
+        self._spin(g, 'trim_h', 1, 0, 'Pionowo:')
+        self.rot_var = tk.StringVar(value='Auto')
+        ttk.Combobox(g, textvariable=self.rot_var, values=('Auto', '0', '90', '180', '270'),
+                     state='readonly', width=6).grid(row=0, column=2, padx=(8, 0), sticky='w')
+        ttk.Label(g, text='obrót', style='Ribbon.TLabel').grid(row=0, column=3, padx=3, sticky='w')
+        self.trim_preset_var = tk.StringVar(value='Niestandardowy')
+        ttk.Combobox(g, textvariable=self.trim_preset_var, values=list(TRIM_PRESETS),
+                     state='readonly', width=22).grid(row=2, column=0, columnspan=4, sticky='ew', pady=(2, 0))
+        self.trim_preset_var.trace_add('write', lambda *_: self.apply_trim_preset())
+        ttk.Label(g, text='format', style='Ribbon.TLabel').grid(row=1, column=2, columnspan=2, padx=(8, 0), sticky='w')
+
+        g = self._group(tab, 'Tabela (0 = auto)')
+        self._spin(g, 'columns', 0, 0, 'K:', step=1, high=200, width=4)
+        self._spin(g, 'rows', 1, 0, 'W:', step=1, high=200, width=4)
+
+        g = self._group(tab, 'Spady (na stronę) [mm]')
+        self.variables['bleed'] = tk.StringVar(value='1.5')
+        self._spin(g, 'bleed', 0, 0, 'Spad:', step=0.5, high=50, width=5)
+        self.auto_gross_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(g, text='brutto = netto + 2 × spad', variable=self.auto_gross_var,
+                        command=self.toggle_auto_gross).grid(row=1, column=0, columnspan=2, sticky='w')
+        self.derived_bleed_var = tk.StringVar(value='Spad: 1,5 mm z każdej strony')
+        ttk.Label(g, textvariable=self.derived_bleed_var, style='Caption.TLabel',
+                  foreground=ACCENT, wraplength=230, justify='left').grid(row=2, column=0, columnspan=2, sticky='w')
+
+        g = self._group(tab, 'Odstępy i marginesy [mm]')
+        self._spin(g, 'gap_x', 0, 0, 'Odstęp X:', width=5)
+        self._spin(g, 'gap_y', 1, 0, 'Odstęp Y:', width=5)
+        self._spin(g, 'margin_x', 0, 2, '  Margines X:', width=5)
+        self._spin(g, 'margin_y', 1, 2, '  Margines Y:', width=5)
+
+        g = self._group(tab, 'Arkusz [mm]')
+        self.preset_var = tk.StringVar(value=next(iter(PRESETS)))
+        ttk.Combobox(g, textvariable=self.preset_var, values=list(PRESETS), state='readonly',
+                     width=19).grid(row=0, column=0, columnspan=4, sticky='ew', pady=(0, 2))
+        self.preset_var.trace_add('write', lambda *_: self.apply_preset())
+        self._spin(g, 'sheet_w', 1, 0, 'Szer.:', step=1, width=5)
+        self._spin(g, 'sheet_h', 2, 0, 'Wys.:', step=1, width=5)
+
+        g = self._group(tab, 'Rodzaj arkuszy')
+        for value, icon, text in SHEET_KINDS:
+            ttk.Radiobutton(g, text=text, image=self._icon(icon), compound='top', value=value,
+                            variable=self.sheet_kind, style='Kind.Toolbutton',
+                            command=self._apply_sheet_kind).pack(side='left', fill='y', padx=1)
+
+    def _ribbon_crop(self, ribbon):
+        tab = ttk.Frame(ribbon, style='Ribbon.TFrame')
+        ribbon.add(tab, text='Kadrowanie PDF')
+        g = self._group(tab, '1. Oryginał PDF [mm]')
+        self.auto_source_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(g, text='rozmiar z każdego pliku PDF', variable=self.auto_source_var,
+                        command=self.toggle_auto_source).grid(row=0, column=0, columnspan=2, sticky='w')
+        self._spin(g, 'source_w', 1, 0, 'Szer.:', step=1, width=7)
+        self._spin(g, 'source_h', 2, 0, 'Wys.:', step=1, width=7)
+        g = self._group(tab, '3. Brutto = netto + spady [mm]')
+        ttk.Checkbutton(g, text='obliczaj automatycznie', variable=self.auto_gross_var,
+                        command=self.toggle_auto_gross).grid(row=0, column=0, columnspan=2, sticky='w')
+        self._spin(g, 'gross_w', 1, 0, 'Szer.:', width=7)
+        self._spin(g, 'gross_h', 2, 0, 'Wys.:', width=7)
+        g = self._group(tab, 'Sposób dopasowania PDF')
+        self.scale_var = tk.StringVar(value='Kadruj 1:1')
+        ttk.Combobox(g, textvariable=self.scale_var, values=('Kadruj 1:1', 'Bez skalowania', 'Dopasuj', 'Wypełnij'),
+                     state='readonly', width=16).pack(anchor='w')
+        self.scale_var.trace_add('write', lambda *_: self.schedule_refresh())
+        ttk.Label(g, text='Kadruj 1:1 = wytnij środek oryginału bez skalowania.\n'
+                  'Netto ustawiasz w „Montaż akcydensów”.', style='Caption.TLabel',
+                  justify='left').pack(anchor='w', pady=(3, 0))
+        g = self._group(tab, 'Kadr wybranego PDF')
+        ttk.Button(g, text='✂  Kadruj wybrany PDF\n(podgląd, przesunięcie X/Y)',
+                   command=self.open_crop_editor).pack(fill='both', expand=True)
+        g = self._group(tab, 'Kontrola')
+        ttk.Label(g, textvariable=self.derived_bleed_var, style='Ribbon.TLabel', foreground=ACCENT,
+                  wraplength=260, justify='left').pack(anchor='w')
+
+    def _ribbon_duplex(self, ribbon):
+        tab = ttk.Frame(ribbon, style='Ribbon.TFrame')
+        ribbon.add(tab, text='Druk cyfrowy — recto/verso')
+        g = self._group(tab, 'Przesunięcie verso [mm]  (+X prawo, +Y dół)')
+        self._spin(g, 'verso_shift_x', 0, 0, 'X:', step=0.1, low=-20, high=20, width=6)
+        self._spin(g, 'verso_shift_y', 1, 0, 'Y:', step=0.1, low=-20, high=20, width=6)
+        g = self._group(tab, 'Profil maszyny')
+        self.profile_name = tk.StringVar()
+        self.profile_choices = ttk.Combobox(g, textvariable=self.profile_name, values=list_profiles(),
+                                            state='readonly', width=24)
+        self.profile_choices.grid(row=0, column=0, columnspan=3, sticky='ew', pady=(0, 3))
+        for col, (text, cmd) in enumerate((('Wczytaj', self.apply_duplex_profile),
+                                           ('Zapisz', self.save_duplex_profile),
+                                           ('Usuń', self.delete_duplex_profile))):
+            ttk.Button(g, text=text, command=cmd).grid(row=1, column=col, sticky='ew', padx=1)
+        g = self._group(tab, 'Kalibracja spasowania')
+        ttk.Button(g, text='1. Arkusz testowy PDF', command=self.export_duplex_test_sheet).pack(fill='x', pady=1)
+        ttk.Button(g, text='2. Wpisz pomiar', command=self.open_duplex_measurement).pack(fill='x', pady=1)
+        g = self._group(tab, 'Podgląd')
+        ttk.Button(g, text='Rejestracja\nprzód + tył', image=self._icon('register'), compound='left',
+                   command=self.toggle_overlay).pack(fill='both', expand=True)
+        g = self._group(tab, 'Wskazówka')
+        ttk.Label(g, text='Rodzaj arkusza „Dwustronnie” wybierz w zakładce Montaż akcydensów.\n'
+                  'Drukuj 100% skali; offset przesuwa grafikę i linie cięcia verso, nie arkusz.',
+                  style='Ribbon.TLabel', justify='left').pack(anchor='w')
+
+    # --- Podgląd arkusza ---------------------------------------------------------------------------
+
+    def _create_preview(self, body):
+        area = ttk.Frame(body, style='Panel.TFrame', padding=(6, 4))
+        area.grid(row=0, column=0, sticky='nsew', padx=(0, 6))
+        area.columnconfigure(0, weight=1)
+        area.rowconfigure(1, weight=1)
+        head = ttk.Frame(area, style='Panel.TFrame')
+        head.grid(row=0, column=0, columnspan=2, sticky='ew')
+        self.slots_title = tk.StringVar(value='Tabela użytków')
+        ttk.Label(head, textvariable=self.slots_title, style='Muted.TLabel').pack(side='left', expand=True)
+        self.side_text = tk.StringVar(value='Arkusz 1 • Recto')
+        ttk.Label(head, textvariable=self.side_text, style='Summary.TLabel').pack(side='right')
+        self.canvas = tk.Canvas(area, background=CANVAS, highlightthickness=1, highlightbackground=BORDER)
+        self.canvas.grid(row=1, column=0, sticky='nsew')
+        self.canvas.bind('<Configure>', lambda e: self._display_image())
+        self.canvas.bind('<Button-1>', self._canvas_click)
+        self.canvas.bind('<Double-1>', lambda e: self.edit_sheet())
+
+        tools = ttk.Frame(area, style='Panel.TFrame', padding=(5, 0, 0, 0))
+        tools.grid(row=1, column=1, sticky='ns')
+        ttk.Checkbutton(tools, text='Symbole', image=self._icon('symbols'), compound='top',
+                        variable=self.symbolic_var, style='Tool.Toolbutton',
+                        command=self.refresh).pack(fill='x', pady=1)
+        for icon, text, cmd in (('edit', 'Edytuj użytki', self.edit_sheet),
+                                ('register', 'Rejestracja', self.toggle_overlay),
+                                ('refresh', 'Odśwież', self.refresh),
+                                ('preflight', 'Preflight', self.show_preflight)):
+            ttk.Button(tools, text=text, image=self._icon(icon), compound='top', command=cmd,
+                       style='Tool.Toolbutton').pack(fill='x', pady=1)
+        ttk.Label(tools, text='Nakładki', style='Muted.TLabel').pack(pady=(8, 0))
+        self.preview_label_choice = ttk.Combobox(tools, textvariable=self.preview_label_mode,
+                                                 values=OVERLAY_OPTIONS, state='readonly', width=11)
+        self.preview_label_choice.pack()
+        self.preview_label_choice.bind('<<ComboboxSelected>>', lambda event: self.refresh())
+
+        sheets = ttk.Frame(area, style='Panel.TFrame', padding=(0, 6, 0, 0))
+        sheets.grid(row=2, column=0, columnspan=2, sticky='ew')
+        self.sheets_title = tk.StringVar(value='Arkusze')
+        ttk.Label(sheets, textvariable=self.sheets_title, style='Muted.TLabel').pack(anchor='center')
+        strip = ttk.Frame(sheets, style='Panel.TFrame')
+        strip.pack(fill='x')
+        ttk.Button(strip, text='▶', width=3, command=lambda: self.change_side(1)).pack(side='right')
+        ttk.Button(strip, text='◀', width=3, command=lambda: self.change_side(-1)).pack(side='right', padx=(4, 2))
+        holder = ttk.Frame(strip, style='Panel.TFrame')
+        holder.pack(side='left', fill='x', expand=True)
+        self.sheet_canvas = tk.Canvas(holder, height=26, background=PANEL, highlightthickness=0)
+        self.sheet_canvas.pack(fill='x')
+        self.sheet_scroll = ttk.Scrollbar(holder, orient='horizontal', command=self.sheet_canvas.xview)
+        self.sheet_canvas.configure(xscrollcommand=self.sheet_scroll.set)
+        self.sheet_buttons = ttk.Frame(self.sheet_canvas, style='Panel.TFrame')
+        self.sheet_canvas.create_window((0, 0), window=self.sheet_buttons, anchor='nw')
+        self.sheet_buttons.bind('<Configure>', lambda e: self._sheet_strip_scroll())
+        self.sheet_choice = tk.IntVar(value=0)
+        self._sheet_signature = None
+
+    # --- Tabela stron, podsumowanie, WYKONAJ IMPOZYCJĘ --------------------------------------------
+
+    def _create_pages_panel(self, body):
+        panel = ttk.Frame(body, style='Panel.TFrame', padding=(8, 4), width=470)
+        panel.grid(row=0, column=1, sticky='nsew')
+        panel.grid_propagate(False)
+        panel.rowconfigure(1, weight=1)
+        panel.columnconfigure(0, weight=1)
+        self.pages_title = tk.StringVar(value='Stron: 0 • Plików: 0')
+        ttk.Label(panel, textvariable=self.pages_title, style='Muted.TLabel').grid(row=0, column=0, pady=(0, 3))
+        tree_frame = ttk.Frame(panel, style='Panel.TFrame')
+        tree_frame.grid(row=1, column=0, sticky='nsew')
+        columns = ('s', 'spdf', 'name', 'w', 'h', 'copies', 'role')
+        self.files = ttk.Treeview(tree_frame, columns=columns, show='headings', selectmode='extended')
+        for key, label, width, anchor, stretch in (('s', 'S', 34, 'center', False),
+                                                   ('spdf', 'SPDF', 40, 'center', False),
+                                                   ('name', 'Nazwa pliku', 150, 'w', True),
+                                                   ('w', 'Szer.', 48, 'center', False),
+                                                   ('h', 'Wys.', 48, 'center', False),
+                                                   ('copies', 'Nakład', 52, 'center', False),
+                                                   ('role', 'Rola', 82, 'center', False)):
+            self.files.heading(key, text=label)
+            self.files.column(key, width=width, anchor=anchor, stretch=stretch)
+        self.files.pack(side='left', fill='both', expand=True)
+        bar = ttk.Scrollbar(tree_frame, orient='vertical', command=self.files.yview)
+        bar.pack(side='right', fill='y')
+        self.files.configure(yscrollcommand=bar.set)
+        self.files.bind('<<TreeviewSelect>>', self._tree_selection)
+        self.files.bind('<Double-1>', lambda event: self.edit_page_roles())
+        self.files.bind('<Delete>', lambda event: self.remove_file())
+        self.files.bind('<Button-3>', self._table_menu)
+
+        actions = ttk.Frame(panel, style='Panel.TFrame')
+        actions.grid(row=2, column=0, sticky='ew', pady=(5, 0))
+        self._button(actions, '+ Dodaj PDF', self.add_files, True).pack(side='left', padx=1)
+        self._button(actions, 'Usuń plik', self.remove_file).pack(side='left', padx=1)
+        self._button(actions, '↑', lambda: self.move_job(-1), width=3).pack(side='left', padx=1)
+        self._button(actions, '↓', lambda: self.move_job(1), width=3).pack(side='left', padx=1)
+        ttk.Label(actions, text='Nakład:', style='Panel.TLabel').pack(side='left', padx=(10, 3))
+        self.copies_var = tk.StringVar(value='1')
+        self.copies_entry = ttk.Spinbox(actions, textvariable=self.copies_var, from_=1, to=1000000,
+                                        width=7, command=self.change_copies)
+        self.copies_entry.pack(side='left')
+        self.copies_entry.bind('<Return>', lambda e: self.change_copies())
+        self._button(actions, 'Zmień', self.change_copies).pack(side='left', padx=(2, 0))
+
+        actions2 = ttk.Frame(panel, style='Panel.TFrame')
+        actions2.grid(row=3, column=0, sticky='ew', pady=(3, 0))
+        self._button(actions2, 'Przód / tył — role…', self.edit_page_roles).pack(side='left', expand=True, fill='x', padx=1)
+        self._button(actions2, '✂ Kadruj PDF…', self.open_crop_editor).pack(side='left', expand=True, fill='x', padx=1)
+        self._button(actions2, '📊 Plan ekonomiczny', self.show_economic_plan).pack(side='left', expand=True, fill='x', padx=1)
+        self.selected_info = tk.StringVar(value='Wczytaj pliki PDF, aby rozpocząć montaż.')
+        ttk.Label(panel, textvariable=self.selected_info, style='Muted.TLabel', wraplength=430,
+                  justify='left').grid(row=4, column=0, sticky='w', pady=(5, 3))
+
+        summary = ttk.LabelFrame(panel, text='Podsumowanie', padding=(10, 4))
+        summary.grid(row=5, column=0, sticky='ew', pady=(2, 6))
+        summary.columnconfigure(1, weight=1)
+        self.summary_vars = {}
+        for row, (key, label) in enumerate((('pages', 'Stron do impozycji:'),
+                                            ('sheets', 'Ilość arkuszy:'),
+                                            ('capacity', 'Użytków na stronie arkusza:'),
+                                            ('empty', 'Ilość pól nieużytych:'),
+                                            ('use', 'Użytek brutto / netto:'))):
+            ttk.Label(summary, text=label, style='Panel.TLabel').grid(row=row, column=0, sticky='e')
+            var = tk.StringVar(value='—')
+            self.summary_vars[key] = var
+            ttk.Label(summary, textvariable=var, style='Summary.TLabel').grid(row=row, column=1, sticky='w', padx=6)
+
+        ttk.Button(panel, text='WYKONAJ IMPOZYCJĘ', style='Run.TButton',
+                   command=self.export).grid(row=6, column=0, sticky='ew')
+        run_row = ttk.Frame(panel, style='Panel.TFrame')
+        run_row.grid(row=7, column=0, sticky='ew', pady=(3, 0))
+        ttk.Label(run_row, text='Wykonaj:', style='Panel.TLabel').pack(side='left', padx=(2, 4))
+        ttk.Combobox(run_row, textvariable=self.run_mode_var, values=RUN_MODES, state='readonly',
+                     width=28).pack(side='left')
+        extra = ttk.Frame(panel, style='Panel.TFrame')
+        extra.grid(row=8, column=0, sticky='ew', pady=(4, 2))
+        self._button(extra, 'Preflight PDF', self.show_preflight).pack(side='left', expand=True, fill='x', padx=1)
+        self._button(extra, 'Eksportuj pojedyncze strony', self.export_single_pages).pack(side='left', expand=True, fill='x', padx=1)
+
+    def _create_marks_strip(self, body):
+        """Narrow vertical panel like Imp4's 'DRUK OFFSETOWY' marks bar."""
+        strip = ttk.Frame(body, style='Panel.TFrame', padding=(4, 4))
+        strip.grid(row=0, column=2, sticky='ns', padx=(6, 0))
+        title = tk.Canvas(strip, width=22, height=150, background=ACCENT, highlightthickness=0)
+        title.create_text(11, 75, text='ZNACZNIKI', angle=90, fill='white', font=('Segoe UI', 9, 'bold'))
+        title.pack(side='left', fill='y', padx=(0, 4))
+        marks = ttk.Frame(strip, style='Panel.TFrame')
+        marks.pack(side='left', fill='y')
+        for icon, text, var in (('marks', 'Linie\ncięcia', self.marks_var),
+                                ('numbers', 'Numery\nstron', self.labels_var)):
+            ttk.Checkbutton(marks, text=text, image=self._icon(icon), compound='top', variable=var,
+                            style='Tool.Toolbutton', width=7,
+                            command=self.schedule_refresh).pack(fill='x', pady=1)
+        ttk.Label(marks, text='w PDF', style='Muted.TLabel').pack(pady=(4, 0))
+
+    # --- Synchronizacja „Rodzaj arkuszy” ↔ tryb/odwracanie -----------------------------------------
+
+    def _apply_sheet_kind(self):
+        kind = self.sheet_kind.get()
+        mode, _, flip = kind.partition('|')
+        self._syncing_kind = True
+        try:
+            if flip:
+                self.flip_var.set(flip)
+            self.mode_var.set(mode)
+        finally:
+            self._syncing_kind = False
+
+    def _sync_sheet_kind(self):
+        if getattr(self, '_syncing_kind', False):
+            return
+        mode = self.mode_var.get()
+        self.sheet_kind.set(f'{mode}|{self.flip_var.get()}' if mode == 'Dwustronnie' else mode)
 
     def _reload_profile_choices(self):
         self.profile_choices.configure(values=list_profiles())
@@ -363,6 +617,90 @@ class App(tk.Tk):
             self._reload_profile_choices()
         except (OSError, ValueError) as exc:
             messagebox.showerror('Kalibracja', str(exc), parent=self)
+
+    def _template_names(self):
+        try:
+            return list_templates()
+        except (OSError, ValueError) as exc:
+            # Uszkodzony plik własnych szablonów nie może zablokować programu.
+            self.after(400, lambda: messagebox.showerror('Szablony prac', str(exc), parent=self))
+            return list(BUILTIN)
+
+    def _reload_template_choices(self):
+        self.template_choices.configure(values=self._template_names())
+
+    def apply_job_template(self):
+        name = self.template_name.get().strip()
+        if not name:
+            messagebox.showwarning('Szablony prac', 'Wybierz szablon z listy.', parent=self)
+            return
+        missing_machine = None
+        machine = None
+        try:
+            template = read_template(name)
+            settings = apply_template(self._read_fields(), template)
+            machine = template.get('machine')
+            if machine:
+                try:
+                    profile = read_profile(machine)
+                except (OSError, ValueError):
+                    missing_machine = machine
+                else:
+                    settings = replace(settings, verso_shift_x=profile['x'],
+                                       verso_shift_y=profile['y'], flip=profile['flip'])
+            validate(settings)
+        except (OSError, ValueError, KeyError) as exc:
+            messagebox.showerror('Szablony prac', str(exc), parent=self)
+            return
+        self.project.settings = settings
+        self._fill_fields()
+        if machine and missing_machine is None:
+            self.profile_name.set(machine)
+        self.refresh()
+        if missing_machine:
+            messagebox.showwarning('Szablony prac',
+                f'Szablon wskazuje profil maszyny „{missing_machine}”, którego nie ma na tym komputerze. '
+                'Kalibracja recto/verso i odwracanie zostały bez zmian — sprawdź je przed drukiem.',
+                parent=self)
+
+    def save_job_template(self):
+        current = self.template_name.get().strip()
+        initial = current if current and not is_builtin(current) else ''
+        name = simpledialog.askstring('Szablon pracy', 'Nazwa nowego szablonu:',
+                                      initialvalue=initial, parent=self)
+        if name is None: return
+        try:
+            existing = next((n for n in self._template_names() if n.casefold() == name.strip().casefold()), None)
+            if existing and not is_builtin(existing):
+                if not messagebox.askyesno('Szablon pracy', f'Szablon „{existing}” już istnieje. Nadpisać go?', parent=self):
+                    return
+            settings = self._read_fields()
+            machine = None
+            profile = self.profile_name.get().strip()
+            if profile and messagebox.askyesno('Szablon pracy',
+                    f'Powiązać szablon z profilem maszyny „{profile}”?\n\n'
+                    'Przy wczytaniu szablonu program ustawi też kalibrację recto/verso '
+                    'i krawędź odwracania z tego profilu.', parent=self):
+                machine = profile
+            store_template(name, settings, machine=machine)
+            self._reload_template_choices()
+            self.template_name.set(name.strip())
+        except (OSError, ValueError) as exc:
+            messagebox.showerror('Szablony prac', str(exc), parent=self)
+
+    def delete_job_template(self):
+        name = self.template_name.get().strip()
+        if not name: return
+        if is_builtin(name):
+            messagebox.showinfo('Szablony prac', 'Szablonów wbudowanych nie można usunąć.', parent=self)
+            return
+        if not messagebox.askyesno('Usuń szablon', f'Usunąć szablon „{name}”?', parent=self): return
+        try:
+            remove_template(name)
+            self.template_name.set('')
+            self._reload_template_choices()
+        except (OSError, ValueError) as exc:
+            messagebox.showerror('Szablony prac', str(exc), parent=self)
 
     def export_duplex_test_sheet(self):
         """Two-page vector PDF using the current sheet format/flip/offset."""
@@ -466,38 +804,6 @@ class App(tk.Tk):
         dlg.grab_set()
         dlg.focus_set()
 
-    def _separator(self,frm):
-        ttk.Separator(frm,orient='horizontal').pack(fill='x',pady=(10,3))
-
-    def _row(self,frm,label,var,kind='entry',options=()):
-        r=ttk.Frame(frm,style='Panel.TFrame')
-        r.pack(fill='x',pady=3)
-        ttk.Label(r,text=label,style='Panel.TLabel').pack(side='left')
-        if kind=='combo':
-            w=ttk.Combobox(r,textvariable=var,values=options,state='readonly',width=16)
-        else:
-            w=ttk.Entry(r,textvariable=var,width=9)
-        w.pack(side='right',fill='x')
-        if kind != 'combo':
-            w.bind('<KeyRelease>',lambda e:self.schedule_refresh())
-            w.bind('<FocusOut>',lambda e:self.schedule_refresh())
-        return w
-
-    def _paired(self,frm,label_a,key_a,label_b,key_b):
-        line=ttk.Frame(frm,style='Panel.TFrame')
-        line.pack(fill='x',pady=4)
-        for label,key in ((label_a,key_a),(label_b,key_b)):
-            box=ttk.Frame(line,style='Panel.TFrame')
-            box.pack(side='left',expand=True,fill='x',padx=(0,6))
-            ttk.Label(box,text=label,style='Muted.TLabel',font=('Segoe UI',8)).pack(anchor='w')
-            v=tk.StringVar()
-            self.variables[key]=v
-            field=ttk.Entry(box,textvariable=v,width=12)
-            self.entries[key]=field
-            field.pack(fill='x',pady=(2,0))
-            field.bind('<KeyRelease>',lambda e:self.schedule_refresh())
-            field.bind('<FocusOut>',lambda e:self.schedule_refresh())
-
     def _fill_fields(self):
         s=self.project.settings
         self._suspend_events=True
@@ -543,8 +849,7 @@ class App(tk.Tk):
     def toggle_auto_source(self):
         self._auto_field_states()
         if self.auto_source_var.get() and self.project.jobs:
-            selection=self.files.selection()
-            idx=int(selection[0]) if selection else 0
+            idx=self._selected_job() or 0
             _,w,h=source_summary(self.project.jobs[idx].path)
             self.variables['source_w'].set(f'{w:g}')
             self.variables['source_h'].set(f'{h:g}')
@@ -648,35 +953,84 @@ class App(tk.Tk):
                 messagebox.showerror('Błąd PDF',str(e))
         if paths:
             self.side_index=0
-            self._render_jobs()
+            self._render_jobs(len(self.project.jobs)-1)
             self.refresh()
+
+    def _selected_job(self):
+        """Index of the job owning the selected page row (rows are 'job:page')."""
+        selection = self.files.selection()
+        if not selection:
+            return None
+        return int(selection[0].split(':')[0])
+
+    def _page_sizes(self, path):
+        """Apparent TrimBox size of every page in mm, cached per file modification time."""
+        try:
+            stamp = Path(path).stat().st_mtime
+        except OSError:
+            return None
+        cached = self._page_size_cache.get(path)
+        if cached and cached[0] == stamp:
+            return cached[1]
+        sizes = []
+        with fitz.open(path) as doc:
+            for page in doc:
+                b = page.trimbox
+                w, h = mm(b.width), mm(b.height)
+                sizes.append((h, w) if page.rotation in (90, 270) else (w, h))
+        self._page_size_cache[path] = (stamp, sizes)
+        return sizes
+
+    def _job_color(self, path):
+        for i, job in enumerate(self.project.jobs):
+            if job.path == path:
+                return file_color(i)
+        return '#bbbbbb'
 
     def _render_jobs(self,selected=None):
         self.files.delete(*self.files.get_children())
+        total = 0
         for i,j in enumerate(self.project.jobs):
+            name = Path(j.path).name
             try:
-                pages,w,h=source_summary(j.path)
-                name=Path(j.path).name
+                sizes = self._page_sizes(j.path)
             except Exception:
-                pages='!'
-                name=Path(j.path).name+' [BRAK]'
-            self.files.insert('', 'end', iid=str(i), text=name,
-                              values=(pages,j.copies, j.role if not j.page_roles else 'Mieszane'))
-        if selected is not None and str(selected) in self.files.get_children():
-            self.files.selection_set(str(selected))
+                sizes = None
+            color = file_color(i)
+            tint = '#' + ''.join(f'{int(int(color[k:k+2],16)*.45 + 255*.55):02x}' for k in (1,3,5))
+            self.files.tag_configure(f'job{i}', background=tint)
+            self.files.tag_configure('skip', foreground='#8a94a3')
+            if sizes is None:
+                self.files.insert('', 'end', iid=f'{i}:0', values=('!', '—', name+' [BRAK]', '', '', j.copies, ''),
+                                  tags=(f'job{i}',))
+                continue
+            for page,(w,h) in enumerate(sizes):
+                role = j.role_for(page)
+                if role != ROLE_SKIP:
+                    total += 1
+                tags = (f'job{i}', 'skip') if role == ROLE_SKIP else (f'job{i}',)
+                self.files.insert('', 'end', iid=f'{i}:{page}',
+                                  values=(total if role != ROLE_SKIP else '–', page+1, name,
+                                          f'{w:.1f}'.rstrip('0').rstrip('.'), f'{h:.1f}'.rstrip('0').rstrip('.'),
+                                          j.copies, role), tags=tags)
+        self.pages_title.set(f'Stron: {total} • Plików: {len(self.project.jobs)}')
+        if selected is not None and f'{selected}:0' in self.files.get_children():
+            self.files.selection_set(f'{selected}:0')
+            self.files.see(f'{selected}:0')
 
     def _tree_selection(self,*args):
-        selection=self.files.selection()
-        if not selection:return
-        j=self.project.jobs[int(selection[0])]
+        idx=self._selected_job()
+        if idx is None:return
+        j=self.project.jobs[idx]
         self.copies_var.set(str(j.copies))
         try:
             count,w,h=source_summary(j.path)
             if self.auto_source_var.get():
                 self.variables['source_w'].set(f'{w:g}')
                 self.variables['source_h'].set(f'{h:g}')
-            self.selected_info.set(f'{Path(j.path).name}\n{count} str. · Oryginał: {w} × {h} mm\nKadr X={j.crop_x:+.1f}, Y={j.crop_y:+.1f} mm\nRola: {j.role}'
-                                       + (f' (wyjątki: {len(j.page_roles)})' if j.page_roles else ''))
+            self.selected_info.set(f'{Path(j.path).name}  •  {count} str.  •  oryginał {w:g} × {h:g} mm  •  '
+                                   f'kadr X={j.crop_x:+.1f}, Y={j.crop_y:+.1f} mm  •  rola: {j.role}'
+                                   + (f' (wyjątki: {len(j.page_roles)})' if j.page_roles else ''))
         except Exception as e:
             self.selected_info.set(str(e))
 
@@ -684,8 +1038,7 @@ class App(tk.Tk):
         if not self.project.jobs:
             messagebox.showinfo('Kadr','Dodaj plik PDF.',parent=self)
             return
-        selection=self.files.selection()
-        idx=int(selection[0]) if selection else 0
+        idx=self._selected_job() or 0
         job=self.project.jobs[idx]
         try:
             self.project.settings=self._read_fields()
@@ -704,11 +1057,10 @@ class App(tk.Tk):
 
     def edit_page_roles(self):
         """Assign one file role or page overrides by multi-select/range."""
-        selection = self.files.selection()
-        if not selection:
-            messagebox.showinfo('Wybierz plik', 'Zaznacz plik PDF po lewej stronie.')
+        idx = self._selected_job()
+        if idx is None:
+            messagebox.showinfo('Wybierz plik', 'Zaznacz stronę pliku PDF w tabeli stron.')
             return
-        idx = int(selection[0])
         job = self.project.jobs[idx]
         try:
             count, _, _ = source_summary(job.path)
@@ -832,30 +1184,30 @@ class App(tk.Tk):
         self._button(bottom,'Zapisz przypisanie',save,True).pack(side='right',padx=8)
 
     def remove_file(self):
-        sel=self.files.selection()
-        if not sel:return
-        self.project.jobs.pop(int(sel[0]))
+        idx=self._selected_job()
+        if idx is None:return
+        self.project.jobs.pop(idx)
         self.side_index=0
         self._render_jobs()
         self.refresh()
 
     def change_copies(self):
-        sel=self.files.selection()
-        if not sel:return
+        idx=self._selected_job()
+        if idx is None:return
         try:
             copies=int(self.copies_var.get())
             if copies<1 or copies>1000000:raise ValueError()
-            self.project.jobs[int(sel[0])].copies=copies
-            self._render_jobs(int(sel[0]))
+            self.project.jobs[idx].copies=copies
+            self._render_jobs(idx)
             self.side_index=0
             self.refresh()
         except ValueError:
             messagebox.showerror('Błąd','Nakład musi być liczbą całkowitą 1–1 000 000')
 
     def move_job(self,direction):
-        sel=self.files.selection()
-        if not sel:return
-        idx=int(sel[0]);new_idx=idx+direction
+        idx=self._selected_job()
+        if idx is None:return
+        new_idx=idx+direction
         if 0<=new_idx<len(self.project.jobs):
             self.project.jobs[idx],self.project.jobs[new_idx]=self.project.jobs[new_idx],self.project.jobs[idx]
             self._render_jobs(new_idx)
@@ -870,34 +1222,116 @@ class App(tk.Tk):
             self.after_cancel(self.render_job)
         self.render_job=self.after(450,self.refresh)
 
+    MAX_LISTED_SIDES = 20000
+
+    def _collect_sides(self):
+        """All sheet sides exactly as export will place them (no PDF rendering)."""
+        sources = open_sources(self.project.jobs)
+        try:
+            sides = []
+            for side in project_sides(self.project, sources):
+                sides.append(side)
+                if len(sides) >= self.MAX_LISTED_SIDES:
+                    break
+            return sides
+        finally:
+            for doc in sources.values():
+                doc.close()
+
+    def _update_summary(self, s, sides, capacity):
+        filled = sum(1 for side in sides for p in side.placements if p.source is not None)
+        empty = sum(1 for side in sides for p in side.placements if p.source is None)
+        if capacity:
+            empty += sum(max(0, capacity-len(side.placements)) for side in sides)
+        sheets = len({side.sheet_number for side in sides})
+        more = '+' if len(sides) >= self.MAX_LISTED_SIDES else ''
+        gw, gh = gross_dimensions(s)
+        self.summary_vars['pages'].set(f'{filled}{more}')
+        self.summary_vars['sheets'].set(f'{sheets}{more}' + ('  (dwustronnie)' if s.mode == 'Dwustronnie' else ''))
+        self.summary_vars['capacity'].set(str(capacity) if capacity else '4 strony (2-up)')
+        self.summary_vars['empty'].set(f'{empty}{more}')
+        self.summary_vars['use'].set(f'{gw:g} × {gh:g} / {s.trim_w:g} × {s.trim_h:g} mm  (spad {bleed_for(s):g})')
+
+    def _sheet_label(self, side, duplex):
+        return f'{side.sheet_number}{"R" if side.side == 0 else "V"}' if duplex else str(side.sheet_number)
+
+    def _rebuild_sheet_strip(self, sides, duplex):
+        signature = (len(sides), duplex, tuple((x.sheet_number, x.side) for x in sides[:400]))
+        if signature != self._sheet_signature:
+            self._sheet_signature = signature
+            for child in self.sheet_buttons.winfo_children():
+                child.destroy()
+            for i, side in enumerate(sides[:400]):
+                ttk.Radiobutton(self.sheet_buttons, text=self._sheet_label(side, duplex), value=i,
+                                variable=self.sheet_choice, style='Sheet.Toolbutton',
+                                command=lambda i=i: self.go_to_side(i)).pack(side='left', padx=1)
+        self.sheet_choice.set(self.side_index)
+        active = sum(1 for x in sides if any(p.source is not None for p in x.placements))
+        self.sheets_title.set(f'Arkusze (stron arkuszy: {len(sides)}, aktywnych: {active})'
+                              + ('  — pokazano pierwsze 400' if len(sides) > 400 else ''))
+
+    def _sheet_strip_scroll(self):
+        self.sheet_canvas.configure(scrollregion=self.sheet_canvas.bbox('all'))
+        wide = self.sheet_buttons.winfo_reqwidth() > self.sheet_canvas.winfo_width()
+        if wide and not self.sheet_scroll.winfo_ismapped():
+            self.sheet_scroll.pack(fill='x')
+        elif not wide and self.sheet_scroll.winfo_ismapped():
+            self.sheet_scroll.pack_forget()
+
+    def go_to_side(self, index):
+        if index != self.side_index:
+            self.side_index = index
+            self.refresh()
+
     def refresh(self):
         self.render_job=None
         try:
             self.project.settings=self._read_fields()
             s=self.project.settings
+            self.print_area.set(f'Rozmiar pola zadruku: {s.sheet_w-2*s.margin_x:g} × {s.sheet_h-2*s.margin_y:g} mm')
             if not self.project.jobs:
                 self.stats_text.set('Dodaj pliki PDF, aby zobaczyć prawdziwy podgląd montażu')
                 self.side_text.set('Arkusz 1 • Recto')
+                self.slots_title.set('Tabela użytków')
                 self.preview_photo=None
                 self.preview_pil=None
+                self.current_side=None
+                self.current_sides=[]
+                self._rebuild_sheet_strip([], False)
+                for var in self.summary_vars.values():
+                    var.set('—')
                 self.canvas.delete('all')
-                self.canvas.create_text(200,120,text='DODAJ PLIKI PDF',fill=TEXT,font=('Segoe UI',18,'bold'),anchor='nw')
-                self.canvas.create_text(200,165,text='Obsługiwane: PDF, również wielostronicowe',fill=MUTED,font=('Segoe UI',11),anchor='nw')
-                self._display_image()
+                self.canvas.create_text(40,40,text='OTWÓRZ PLIK PDF DO IMPOZYCJI',fill=TEXT,font=('Segoe UI',16,'bold'),anchor='nw')
+                self.canvas.create_text(40,78,text='Ctrl+O lub „+ Dodaj PDF”. Obsługiwane są również PDF-y wielostronicowe.',fill=MUTED,font=('Segoe UI',10),anchor='nw')
                 return
+            capacity = 0
             if s.mode != 'Broszura':
                 g=geometry(s)
+                capacity = g.capacity
                 details=f'{g.cols} × {g.rows} = {g.capacity} użytków / strona  •  obrót {g.rotation}°'
             else:
                 details='Broszura zeszytowa 2-up (4 strony na arkusz)'
-            image, side=preview(self.project,pixels=1300,index=self.side_index)
-            if side is None and self.side_index>0:
-                self.side_index=0
-                image,side=preview(self.project,pixels=1300,index=0)
+            sides = self._collect_sides()
+            self.current_sides = sides
+            if self.side_index >= len(sides):
+                self.side_index = 0
+            duplex = s.mode in ('Dwustronnie', 'Broszura')
+            self._rebuild_sheet_strip(sides, duplex)
+            self._update_summary(s, sides, capacity)
+            side = sides[self.side_index] if sides else None
+            if self.symbolic_var.get():
+                image = symbolic_preview(side, s, self._job_color, pixels=1300, bleed=bleed_for(s),
+                                         marks=s.crop_marks, mode=self.preview_label_mode.get())
+            else:
+                image, side = preview(self.project,pixels=1300,index=self.side_index)
             if self.register_overlay and s.mode == 'Dwustronnie' and side is not None:
                 from PIL import Image
                 matching = self.side_index + 1 if side.side == 0 else self.side_index - 1
-                opposite, other = preview(self.project, pixels=1300, index=matching)
+                if self.symbolic_var.get():
+                    other = sides[matching] if 0 <= matching < len(sides) else None
+                    opposite = symbolic_preview(other, s, self._job_color, pixels=1300, bleed=bleed_for(s))
+                else:
+                    opposite, other = preview(self.project, pixels=1300, index=matching)
                 if other is not None and other.sheet_number == side.sheet_number and other.side != side.side:
                     landscape = s.sheet_w >= s.sheet_h
                     flip_horizontal = (s.flip == 'Długa krawędź') != landscape
@@ -905,37 +1339,54 @@ class App(tk.Tk):
                     if inverse.size != image.size:
                         inverse = inverse.resize(image.size)
                     image = Image.blend(image.convert('RGB'), inverse.convert('RGB'), 0.5)
-            image=overlay_preview(image, side, s, self.preview_label_mode.get())
+            if not self.symbolic_var.get():
+                image=overlay_preview(image, side, s, self.preview_label_mode.get())
+            self.current_side=side
             self.preview_pil=image
             self.preview_photo=ImageTk.PhotoImage(image)
             self.image_size=image.size
             self.canvas.delete('all')
             self._display_image()
+            used = sum(1 for p in side.placements if p.source is not None) if side else 0
+            self.slots_title.set(f'Tabela użytków ({used})' + ('  •  REJESTRACJA przód + tył' if self.register_overlay and s.mode == 'Dwustronnie' else ''))
             self.side_text.set(f'Arkusz {side.sheet_number} • {"Recto" if side.side == 0 else "Verso"}' if side else 'Brak stron')
-            self.stats_text.set(f'{details}   •   format: {s.sheet_w:g} × {s.sheet_h:g} mm  •   plików: {len(self.project.jobs)}' + ('  •  MIX NAKŁADÓW' if s.mode == 'Ekonomiczny' else ''))
+            self.stats_text.set(f'{details}   •   arkusz {s.sheet_w:g} × {s.sheet_h:g} mm' + ('  •  MIX NAKŁADÓW' if s.mode == 'Ekonomiczny' else ''))
         except Exception as e:
             self.stats_text.set(f'Błąd konfiguracji / PDF: {e}')
             self.side_text.set('Nie można wyświetlić')
 
     def _display_image(self):
-        if self.preview_photo is None:return
+        if self.preview_photo is None or getattr(self, 'preview_pil', None) is None:return
         self.canvas.delete('preview')
         ww,hh=self.canvas.winfo_width(),self.canvas.winfo_height()
         iw,ih=self.image_size
         if ww<5 or hh<5:return
-        # Image is deliberately rendered once at high resolution; canvas zoom
-        # is configured by using a thumbnail for each preview window size.
+        # The sheet is rendered once at high resolution and only scaled to the canvas here.
         from PIL import Image
-        original=self.preview_photo
-        # Resize pre-rendered raster to fit the canvas without re-rendering PDF.
-        if not hasattr(self,'preview_pil') or self.preview_pil is None:
-            # initial path: original already a PhotoImage, draw centered
-            self.canvas.create_image(ww//2,hh//2,image=original,anchor='center',tags='preview')
-            return
-        available=max(0.02,min((ww-35)/iw,(hh-35)/ih))
-        thumb=self.preview_pil.resize((max(1,int(iw*available)),max(1,int(ih*available))),Image.Resampling.LANCZOS)
+        available=max(0.02,min((ww-30)/iw,(hh-30)/ih))
+        tw,th=max(1,int(iw*available)),max(1,int(ih*available))
+        thumb=self.preview_pil.resize((tw,th),Image.Resampling.LANCZOS)
         self.scaled_photo=ImageTk.PhotoImage(thumb)
-        self.canvas.create_image(ww//2,hh//2,image=self.scaled_photo,anchor='center',tags='preview')
+        x0,y0=(ww-tw)//2,(hh-th)//2
+        self.canvas.create_rectangle(x0+4,y0+4,x0+tw+4,y0+th+4,fill='#b9c1cc',outline='',tags='preview')
+        self.canvas.create_image(x0,y0,image=self.scaled_photo,anchor='nw',tags='preview')
+        self._view=(x0,y0,tw/self.project.settings.sheet_w)
+
+    def _canvas_click(self, event):
+        """Click a use on the sheet -> select its page in the page table (like Imp4)."""
+        if not self._view or self.current_side is None:
+            return
+        x0, y0, scale = self._view
+        x, y = (event.x-x0)/scale, (event.y-y0)/scale
+        for placement in self.current_side.placements:
+            slot = placement.slot
+            if placement.source and slot.x <= x <= slot.x+slot.w and slot.y <= y <= slot.y+slot.h:
+                job = next((i for i, j in enumerate(self.project.jobs) if j.path == placement.source.path), None)
+                iid = f'{job}:{placement.source.index}'
+                if job is not None and self.files.exists(iid):
+                    self.files.selection_set(iid)
+                    self.files.see(iid)
+                return
 
     def toggle_overlay(self):
         self.register_overlay = not self.register_overlay
@@ -1018,19 +1469,144 @@ class App(tk.Tk):
             messagebox.showerror('Edytor arkusza', str(exc), parent=self)
 
     def change_side(self,delta):
-        next_idx=max(0,self.side_index+delta)
+        last=max(0,len(self.current_sides)-1) if self.current_sides else 0
+        next_idx=min(last,max(0,self.side_index+delta))
         if next_idx!=self.side_index:
             self.side_index=next_idx
             self.refresh()
 
-    def save_project(self):
-        path=self.project_filename or filedialog.asksaveasfilename(defaultextension='.psimp',
+    # --- Funkcje wzorowane na oknie głównym Impozycjonera 4 -------------------------------------------
+
+    def new_project(self):
+        """Nowa impozycja (Ctrl+N): czyści listę plików, zostawia bieżące ustawienia montażu."""
+        if self.project.jobs and not messagebox.askyesno(
+                'Nowa impozycja', 'Usunąć wszystkie pliki z tabeli stron i zacząć nową impozycję?\n'
+                'Ustawienia montażu zostaną zachowane.', parent=self):
+            return
+        try:
+            settings = self._read_fields()
+        except (ValueError, KeyError):
+            settings = self.project.settings
+        self.project = Project(settings=settings)
+        self.project_filename = None
+        self.status_text.set('')
+        self.side_index = 0
+        self._render_jobs()
+        self.refresh()
+
+    def open_output_settings(self):
+        """Ustawienia pliku wynikowego: dopisek --IMPOZYCJONER i metadane PDF (puste = nazwa pliku)."""
+        dlg = tk.Toplevel(self)
+        dlg.title('Ustawienia — plik wynikowy')
+        dlg.configure(background=BG)
+        dlg.transient(self)
+        body = ttk.Frame(dlg, padding=16)
+        body.pack(fill='both', expand=True)
+        ttk.Checkbutton(body, text='Dodaj frazę --IMPOZYCJONER do nazwy pliku z impozycją',
+                        variable=self.phrase_var).grid(row=0, column=0, columnspan=2, sticky='w', pady=(0, 10))
+        for row, (key, label) in enumerate((('title', 'Tytuł'), ('author', 'Autor'),
+                                            ('subject', 'Temat'), ('keywords', 'Słowa kluczowe')), start=1):
+            ttk.Label(body, text=f'{label} (puste = nazwa pliku):').grid(row=row, column=0, sticky='w', pady=2)
+            ttk.Entry(body, textvariable=self.meta_vars[key], width=36).grid(row=row, column=1, sticky='ew', pady=2)
+        ttk.Label(body, text='Nazwa pliku nie może zawierać znaków # % & * : < > ? / \\ { } | '
+                             'ani być nazwą pliku przetwarzanego.', style='Muted.TLabel',
+                  wraplength=440).grid(row=5, column=0, columnspan=2, sticky='w', pady=(10, 0))
+        ttk.Button(body, text='Zamknij', command=dlg.destroy).grid(row=6, column=1, sticky='e', pady=(12, 0))
+
+    def _table_menu(self, event):
+        row = self.files.identify_row(event.y)
+        if row and row not in self.files.selection():
+            self.files.selection_set(row)
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label='Zaznacz wszystkie wiersze', command=lambda: self._select_rows(table_actions.SELECT_ALL))
+        menu.add_command(label='Zaznacz wiersze parzyste', command=lambda: self._select_rows(table_actions.SELECT_EVEN))
+        menu.add_command(label='Zaznacz wiersze nieparzyste', command=lambda: self._select_rows(table_actions.SELECT_ODD))
+        menu.add_command(label='Odwróć zaznaczenie', command=lambda: self._select_rows(table_actions.SELECT_INVERT))
+        menu.add_separator()
+        menu.add_command(label='Znajdź pierwszy arkusz z tą stroną', command=self.find_first_sheet)
+        menu.add_command(label='Ustaw rozmiar użytka równy rozmiarom zaznaczonej strony', command=self.use_page_size)
+        menu.add_separator()
+        menu.add_command(label='Pomiń zaznaczone strony w impozycji', command=lambda: self._skip_selected(True))
+        menu.add_command(label='Przywróć zaznaczone strony do impozycji', command=lambda: self._skip_selected(False))
+        menu.add_command(label='Usuń wszystkie wiersze z pliku', command=self.remove_file)
+        menu.add_separator()
+        menu.add_command(label='Otwórz plik w czytniku PDF', command=self.open_in_reader)
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _select_rows(self, which):
+        rows = table_actions.select_rows(list(self.files.get_children()), which, list(self.files.selection()))
+        self.files.selection_set(rows)
+        if rows:
+            self.files.see(rows[0])
+
+    def find_first_sheet(self):
+        selection = self.files.selection()
+        if not selection:
+            return
+        job, page = table_actions.parse_row(selection[0])
+        index = table_actions.first_side_with(self.current_sides, self.project.jobs[job].path, page)
+        if index is None:
+            messagebox.showinfo('Znajdź arkusz', 'Ta strona nie występuje na żadnym arkuszu.', parent=self)
+            return
+        self.go_to_side(index)
+
+    def use_page_size(self):
+        selection = self.files.selection()
+        if not selection:
+            return
+        job, page = table_actions.parse_row(selection[0])
+        sizes = self._page_sizes(self.project.jobs[job].path)
+        if not sizes or page >= len(sizes):
+            messagebox.showerror('Rozmiar użytka', 'Nie można odczytać rozmiaru strony.', parent=self)
+            return
+        w, h = (round(v, 2) for v in sizes[page])
+        try:  # spad zostaje taki sam, brutto idzie za netto (jak przy presetach formatu)
+            gap = max(0, (float(self.variables['gross_w'].get().replace(',', '.')) -
+                          float(self.variables['trim_w'].get().replace(',', '.'))) / 2)
+        except (ValueError, KeyError):
+            gap = 0
+        self._suspend_events = True
+        self.trim_preset_var.set('Niestandardowy')
+        self._suspend_events = False
+        self.variables['trim_w'].set(f'{w:g}')
+        self.variables['trim_h'].set(f'{h:g}')
+        self.variables['gross_w'].set(f'{round(w + 2 * gap, 3):g}')
+        self.variables['gross_h'].set(f'{round(h + 2 * gap, 3):g}')
+        self.schedule_refresh()
+
+    def _skip_selected(self, skip):
+        groups = table_actions.pages_by_job(list(self.files.selection()))
+        if not groups:
+            return
+        for job, pages in groups.items():
+            j = self.project.jobs[job]
+            j.page_roles = table_actions.set_skip(j.page_roles, pages, skip, ROLE_SKIP, j.role, ROLE_AUTO)
+        self.side_index = 0
+        self._render_jobs(next(iter(groups)))
+        self.refresh()
+
+    def open_in_reader(self):
+        idx = self._selected_job()
+        if idx is None:
+            return
+        import os
+        try:
+            os.startfile(self.project.jobs[idx].path)  # Windows: domyślny czytnik PDF
+        except (AttributeError, OSError) as exc:
+            messagebox.showerror('Czytnik PDF', str(exc), parent=self)
+
+    def save_project(self, ask=False):
+        path=(None if ask else self.project_filename) or filedialog.asksaveasfilename(defaultextension='.psimp',
                       filetypes=[('Projekt Impozycjonera','*.psimp')])
         if not path:return
         try:
             self.project.settings=self._read_fields()
             save_project(self.project,path)
             self.project_filename=path
+            self.status_text.set(path)
             messagebox.showinfo('Projekt zapisany',f'Zapisano:\n{path}')
         except Exception as e:
             messagebox.showerror('Błąd zapisu',str(e))
@@ -1041,6 +1617,7 @@ class App(tk.Tk):
         try:
             self.project=load_project(path)
             self.project_filename=path
+            self.status_text.set(path)
             self.side_index=0
             self._fill_fields()
             self.refresh()
@@ -1102,6 +1679,15 @@ class App(tk.Tk):
               initialfile='strony_docelowe.pdf' if standalone else 'montaz.pdf',
               filetypes=[('PDF do druku','*.pdf')])
         if not path:return
+        if self.phrase_var.get():
+            path=str(Path(path).with_name(add_imposition_phrase(Path(path).name)))
+        problem=output_name_problem(Path(path).name,[j.path for j in self.project.jobs])
+        if problem:
+            messagebox.showerror('Nazwa pliku wynikowego',problem)
+            return
+        metadata={key:var.get() for key,var in self.meta_vars.items()}
+        run_mode=RUN_ALL if standalone else self.run_mode_var.get()
+        active=self.current_side.sheet_number if self.current_side is not None else None
         try:
             self.project.settings=self._read_fields()
             report=inspect_project(self.project)
@@ -1118,10 +1704,10 @@ class App(tk.Tk):
                 return
             self.update_idletasks()
             self.stats_text.set('Eksport w toku…')
-            count=(export_pages(self.project,path) if standalone
-                   else export_pdf(self.project,path))
-            extra_note = ''
-            if not standalone and self.project.settings.mode == 'Ekonomiczny':
+            count=(export_pages(self.project,path,metadata) if standalone
+                   else export_pdf(self.project,path,metadata,run_mode,active))
+            extra_note = '' if run_mode == RUN_ALL else f'\n\nTryb: {run_mode} (aktywny arkusz {active}).'
+            if not standalone and run_mode == RUN_ALL and self.project.settings.mode == 'Ekonomiczny':
                 docs = open_sources(self.project.jobs)
                 try:
                     audit = economic_report(self.project, docs)
