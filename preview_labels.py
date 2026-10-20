@@ -66,3 +66,74 @@ def overlay_preview(image, side, settings, mode='Numer strony', *, show_empty=Tr
         draw.rounded_rectangle((bx0,by0,bx1,by1), radius=min(10,int(h/12)), fill=(18,31,42,105))
         draw.text((cx-(bbox[0]+bbox[2])/2, cy-(bbox[1]+bbox[3])/2), label, font=font, fill=(235,255,250,205))
     return Image.alpha_composite(canvas, layer).convert('RGB')
+
+
+# Paleta symbolicznych użytków (jak kolorowe pola w Impozycjonerze 4).
+SYMBOL_COLORS = ('#f2c94c', '#c9a882', '#8fc1e3', '#9bc25b', '#b8b26d', '#4f6fd8',
+                 '#c0612b', '#a9b8d9', '#d98cb3', '#5fb8a5', '#e0904a', '#8a7fc9')
+
+
+def file_color(index):
+    return SYMBOL_COLORS[index % len(SYMBOL_COLORS)]
+
+
+def _rgb(color):
+    color = color.lstrip('#')
+    return tuple(int(color[i:i+2], 16) for i in (0, 2, 4))
+
+
+def _head_edge(x0, y0, x1, y1, rotation):
+    """Edge holding the top of the page: 0° top, 90° right (PDF view rotation), 180° bottom, 270° left."""
+    return {0: (x0, y0, x1, y0), 90: (x1, y0, x1, y1),
+            180: (x0, y1, x1, y1), 270: (x0, y0, x0, y1)}[rotation % 360]
+
+
+def symbolic_preview(side, settings, color_for_path, *, pixels=1300, bleed=0.0,
+                     marks=True, mode='Numer strony'):
+    """Draws a schematic sheet without rendering PDF content: coloured uses with
+    page number, rotation and a thick bar on the edge holding the page head."""
+    zoom = pixels / max(settings.sheet_w, settings.sheet_h)
+    width, height = max(1, round(settings.sheet_w*zoom)), max(1, round(settings.sheet_h*zoom))
+    image = Image.new('RGB', (width, height), 'white')
+    draw = ImageDraw.Draw(image)
+    if side is None:
+        return image
+    for placement in side.placements:
+        slot = placement.slot
+        x0, y0 = slot.x*zoom, slot.y*zoom
+        x1, y1 = (slot.x+slot.w)*zoom, (slot.y+slot.h)*zoom
+        b = bleed*zoom
+        if placement.source is None:
+            draw.rectangle((x0, y0, x1, y1), fill=(244, 245, 247), outline=(190, 196, 205), width=1)
+            label, sub = 'PUSTE', ''
+            fg = (150, 158, 170)
+        else:
+            base = _rgb(color_for_path(placement.source.path))
+            dark = tuple(int(c*.78) for c in base)
+            draw.rectangle((x0-b, y0-b, x1+b, y1+b), fill=dark)
+            draw.rectangle((x0, y0, x1, y1), fill=base, outline=(255, 255, 255), width=max(1, int(zoom*.6)))
+            hx0, hy0, hx1, hy1 = _head_edge(x0, y0, x1, y1, slot.rotation)
+            draw.line((hx0, hy0, hx1, hy1), fill=(255, 255, 255), width=max(3, int(min(x1-x0, y1-y0)*.07)))
+            label = f'{placement.source.index+1}:{slot.rotation % 360}°'
+            sub = Path(placement.source.path).stem if mode == 'Plik + numer' else ''
+            fg = (30, 30, 30) if sum(base) > 380 else (255, 255, 255)
+        w, h = x1-x0, y1-y0
+        if w < 8 or h < 8:
+            continue
+        size = max(9, int(min(h*.28, w*.22, 72)))
+        font = _font(size)
+        tb = draw.textbbox((0, 0), label, font=font)
+        cx, cy = (x0+x1)/2, (y0+y1)/2 - (size*.35 if sub else 0)
+        draw.text((cx-(tb[0]+tb[2])/2, cy-(tb[1]+tb[3])/2), label, font=font, fill=fg)
+        if sub:
+            small = _font(max(8, size//2))
+            while len(sub) > 3 and draw.textlength(sub, font=small) > w*.9:
+                sub = sub[:-2] + '…'
+            sb = draw.textbbox((0, 0), sub, font=small)
+            draw.text((cx-(sb[0]+sb[2])/2, cy+size*.75), sub, font=small, fill=fg)
+        if marks and placement.source is not None:
+            m = 3*zoom
+            for (px, py, dx, dy) in ((x0, y0, -1, -1), (x1, y0, 1, -1), (x0, y1, -1, 1), (x1, y1, 1, 1)):
+                draw.line((px+dx*(b+1), py, px+dx*(b+1+m), py), fill=(0, 0, 0), width=1)
+                draw.line((px, py+dy*(b+1), px, py+dy*(b+1+m)), fill=(0, 0, 0), width=1)
+    return image

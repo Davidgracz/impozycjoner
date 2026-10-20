@@ -1,3 +1,30 @@
+# Interfejs w stylu Impozycjonera 4
+
+![Okno główne](docs/interface-imp4-styl.png)
+
+- **Wstęga u góry** — zakładki *Montaż akcydensów*, *Kadrowanie PDF*, *Druk cyfrowy — recto/verso*. Program jest nastawiony na prostą impozycję arkuszową (bez montażu książek). Pola mają strzałki ▲▼ (krok 0,5 mm; przesunięcie verso 0,1 mm).
+- **Rodzaj arkuszy** — przyciski: Jednostronnie, Dwustronnie (długa / krótka krawędź), Ekonomiczny. Stare projekty w trybie Broszura nadal się otwierają i eksportują.
+- **Tabela stron** po prawej — wiersz na każdą stronę PDF (S, SPDF, nazwa, wymiary, nakład, rola), kolor = plik. Dwuklik → role przód/tył, Delete → usuń plik. Kliknięcie użytku na arkuszu zaznacza jego stronę.
+- **Symbole** (pasek przy podglądzie) — schematyczny podgląd: kolorowe użytki `strona:obrót°`, biała belka = góra strony. Wyłączone = prawdziwy render PDF.
+- **Arkusze** pod podglądem — zakładki 1, 2, 3… (dwustronnie 1R / 1V), PgUp / PgDn.
+- **Podsumowanie** i **WYKONAJ IMPOZYCJĘ** (= eksport PDF z preflightem). Szablony prac są w pasku u góry po prawej.
+
+---
+
+# Szablony prac
+
+W górnym pasku okna, po prawej, jest pole **Szablon pracy** z przyciskami *Wczytaj / Zapisz jako… / Usuń*. Szablon to zapamiętany zestaw ustawień **jednej pracy**: format arkusza, netto, spad, odstępy, marginesy, obrót, siatka, tryb (jedno-/dwustronnie, broszura, ekonomiczny), sposób dopasowania PDF oraz znaczniki cięcia.
+
+1. **Wczytaj** — wybierz szablon z listy i kliknij *Wczytaj*. Program ustawi pola i odświeży podgląd. Pliki PDF, ich nakłady i kadry zostają bez zmian.
+2. **Zapisz jako…** — ustaw montaż, jak lubisz, i zapisz pod własną nazwą. Jeżeli w sekcji kalibracji wybrany jest profil maszyny, program zapyta, czy powiązać z nim szablon; przy wczytaniu szablonu ustawi wtedy także przesunięcie verso X/Y i krawędź odwracania z tego profilu. Gdy profilu nie ma na komputerze, dostaniesz ostrzeżenie, a kalibracja zostanie bez zmian.
+3. **Usuń** — usuwa szablon użytkownika. Szablony wbudowane są tylko do odczytu.
+
+**Wbudowane szablony** to punkty startowe (arkusz SRA3 450 × 320 mm, marginesy 6 mm, odstępy 5 mm, znaczniki włączone): wizytówka 93 × 53 z oryginału z kadrowaniem 1:1, wizytówki 90 × 50 i 85 × 55 oraz ulotki A6, DL i A5. Wersje „Bez skalowania” zakładają PDF-y z TrimBox równym netto. Zawsze sprawdź wynik w podglądzie i wydruk próbny.
+
+Szablony użytkownika leżą poza projektami, lokalnie: `%APPDATA%\Impozycjoner Studio\job_templates.json`. Nie są wysyłane na GitHub. Szablon nie zawiera ścieżek do plików ani danych klienta.
+
+---
+
 # Impozycjoner Studio 0.4.1 — inteligentny panel Oryginał / Netto / Spad / Brutto
 
 **Nowość 0.4.1: prawdziwe kadrowanie na podglądzie PDF z indywidualnym przesunięciem dla każdego pliku.**
